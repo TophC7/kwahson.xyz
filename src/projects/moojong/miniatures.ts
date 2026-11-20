@@ -1,5 +1,10 @@
 import * as THREE from 'three';
-import type { PastureKit } from '../../lib/pastureKit';
+import {
+  PASTURE_HEMI_GROUND,
+  PASTURE_HEMI_SKY,
+  PASTURE_SUN_COLOR,
+  type PastureKit,
+} from '../../lib/pastureKit';
 
 /**
  * Studio helper passed into model builders so organic/sculpted models can use
@@ -142,6 +147,39 @@ export function createStudioBuilder(kit: PastureKit): StudioBuilder {
       mats.clear();
     },
   };
+}
+
+/** Lit orthographic studio shared by the tile-face bake and the gallery turntable. */
+export function createStudioStage(): { scene: THREE.Scene; camera: THREE.OrthographicCamera } {
+  const scene = new THREE.Scene();
+  scene.add(new THREE.HemisphereLight(PASTURE_HEMI_SKY, PASTURE_HEMI_GROUND, 2.35));
+  const keyLight = new THREE.DirectionalLight(PASTURE_SUN_COLOR, 2.85);
+  keyLight.position.set(-4.5, 10, 7.5);
+  scene.add(keyLight);
+  const rimLight = new THREE.DirectionalLight(0xd9ebd9, 0.8);
+  rimLight.position.set(6, 4.5, -5);
+  scene.add(rimLight);
+
+  // Generous orthographic frustum so rotated 3D corners never clip
+  const camera = new THREE.OrthographicCamera(-1.35, 1.35, 1.35, -1.35, 0.1, 30);
+  camera.position.set(3.8, 3.25, 4.9);
+  camera.lookAt(0, 0, 0);
+  return { scene, camera };
+}
+
+/**
+ * Wraps a miniature in a holder, centred and scaled by its bounding sphere so it
+ * fits the studio frustum from any angle (spinning the holder never clips).
+ */
+export function frameModel(model: THREE.Object3D): THREE.Group {
+  const holder = new THREE.Group();
+  holder.add(model);
+  holder.updateMatrixWorld(true);
+  const sphere = new THREE.Box3().setFromObject(model).getBoundingSphere(new THREE.Sphere());
+  const preScale = 1.05 / Math.max(sphere.radius, 0.001);
+  model.scale.multiplyScalar(preScale);
+  model.position.copy(sphere.center).multiplyScalar(-preScale);
+  return holder;
 }
 
 // ---------------------------------------------------------------------------
@@ -298,11 +336,12 @@ function makeNovaLogoGroup(
     s.lineTo(0, tipDist);
     s.lineTo(baseHalf, startDist);
     s.closePath();
+    // Rays sit a touch thinner than the ring so their bases tuck inside it instead of z-fighting
     const geo = new THREE.ExtrudeGeometry(s, {
-      depth: opts.depth,
+      depth: opts.depth * 0.8,
       bevelEnabled: false,
     });
-    geo.translate(0, 0, -opts.depth / 2);
+    geo.translate(0, 0, -opts.depth * 0.4);
     return track(geo);
   };
 
@@ -409,6 +448,9 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       part(g, 'box', stripe, [0.575, 0.575, 0.11], [0, 0.44, 0.14]);
       part(g, 'box', stripe, [0.575, 0.575, 0.11], [0, 0.44, -0.08]);
       part(g, 'box', rearBrown, [0.565, 0.565, 0.2], [0, 0.44, -0.3]);
+      // Small dark stinger poking straight out of the rear
+      const stinger = part(g, 'cone', stripe, [0.06, 0.14, 0.06], [0, 0.44, -0.47]);
+      stinger.rotation.x = -Math.PI / 2;
 
       // Clean dark dot eyes matching the rest of the Herd + forward squared antennae
       for (const side of [-1, 1]) {
@@ -533,9 +575,9 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       part(g, 'box', beak, [0.18, 0.11, 0.2], [0, 0.84, 0.54]);
       part(g, 'box', red, [0.12, 0.13, 0.11], [0, 0.73, 0.5]);
 
-      // Crisp square eyes on head sides/front corners
-      for (const x of [-0.195, 0.195]) {
-        part(g, 'box', 0x222624, [0.03, 0.08, 0.08], [x, 0.91, 0.38]);
+      // Dark dot eyes on the head sides, matching the rest of the Herd
+      for (const x of [-0.19, 0.19]) {
+        part(g, 'sphere', 0x222624, [0.02, 0.05, 0.045], [x, 0.91, 0.36]);
       }
 
       // Blocky orange legs + feet
@@ -574,9 +616,9 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       part(g, 'box', bill, [0.3, 0.1, 0.28], [0, 0.82, 0.58]);
       part(g, 'box', 0xd17226, [0.26, 0.04, 0.24], [0, 0.77, 0.56]);
 
-      // Crisp square eyes
-      for (const x of [-0.195, 0.195]) {
-        part(g, 'box', 0x1c211e, [0.03, 0.08, 0.08], [x, 0.94, 0.38]);
+      // Dark dot eyes on the head sides, matching the rest of the Herd
+      for (const x of [-0.19, 0.19]) {
+        part(g, 'sphere', 0x1c211e, [0.02, 0.05, 0.045], [x, 0.94, 0.36]);
       }
 
       // Orange legs + wide flat webbed feet
@@ -641,7 +683,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       g.add(body);
       part(body, 'box', gray, [0.42, 0.38, 0.78], [0, 0, 0]);
       part(body, 'box', orange, [0.43, 0.2, 0.34], [0, 0.1, 0.08]);
-      part(body, 'box', dark, [0.43, 0.2, 0.22], [0, 0.09, -0.24]);
+      part(body, 'box', dark, [0.43, 0.2, 0.22], [0, 0.1, -0.24]);
 
       // Two chunky straight vertical front legs
       for (const x of [-0.12, 0.12]) {
@@ -669,11 +711,9 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       part(head, 'box', white, [0.26, 0.15, 0.1], [0, -0.09, 0.25]);
       part(head, 'box', 0xe599a0, [0.09, 0.07, 0.03], [0, -0.07, 0.3]);
 
-      // Clean bold 2-pixel Minecraft eyes (dark pupil + cyan/amber outer)
-      part(head, 'box', 0x1a1e1f, [0.07, 0.08, 0.025], [-0.09, 0.02, 0.215]);
-      part(head, 'box', 0xe6d384, [0.065, 0.08, 0.025], [-0.155, 0.02, 0.215]);
-      part(head, 'box', 0x1a1e1f, [0.07, 0.08, 0.025], [0.09, 0.02, 0.215]);
-      part(head, 'box', 0x57c7db, [0.065, 0.08, 0.025], [0.155, 0.02, 0.215]);
+      // Two solid odd-eyed dots (one amber, one cyan)
+      part(head, 'sphere', 0xe6c35a, [0.05, 0.06, 0.025], [-0.12, 0.02, 0.21]);
+      part(head, 'sphere', 0x57c7db, [0.05, 0.06, 0.025], [0.12, 0.02, 0.21]);
 
       // Simple compact upright-angled tail tucked close behind the rump (keeps scale chunky & big!)
       const tail = part(g, 'box', dark, [0.1, 0.34, 0.1], [0, 0.3, -0.44]);
@@ -1036,9 +1076,9 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       // Clean, minimal low-poly glass mason jar filled with golden honey + silver/tin screw lid
       const g = new THREE.Group();
 
-      // Inner golden honey fill (visible cleanly through the glass!)
+      // Inner deep amber honey fill (visible cleanly through the glass!)
       const honeyGeo = track(new THREE.CylinderGeometry(0.34, 0.34, 0.62, 10));
-      mesh(g, honeyGeo, 0xe8a12b, [0, 0.36, 0], { flat: true, roughness: 0.78 });
+      mesh(g, honeyGeo, 0xe0780f, [0, 0.36, 0], { flat: true, roughness: 0.78 });
 
       // Clean low-poly 10-sided translucent pale glass mason jar shell
       const glassPts = [
@@ -1051,7 +1091,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         new THREE.Vector2(0.0, 0.94),
       ];
       const glassGeo = track(new THREE.LatheGeometry(glassPts, 10));
-      mesh(g, glassGeo, 0xdff0ed, [0, 0, 0], { flat: true, roughness: 0.4, opacity: 0.38 });
+      mesh(g, glassGeo, 0xdff0ed, [0, 0, 0], { flat: true, roughness: 0.4, opacity: 0.24 });
 
       // Simple clean low-poly silver-tin mason screw lid
       const lidGeo = track(new THREE.CylinderGeometry(0.35, 0.35, 0.14, 10));
@@ -1815,12 +1855,43 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       // Snowy matte low-poly pine tree wrapped with colorful glowing Christmas lights!
       const g = new THREE.Group();
       part(g, 'cylinder', 0x7c5538, [0.12, 0.28, 0.12], [0, 0.14, 0]);
-      part(g, 'cone', 0x3d6b4c, [0.56, 0.46, 0.56], [0, 0.44, 0]);
-      part(g, 'cone', 0x467855, [0.44, 0.42, 0.44], [0, 0.72, 0]);
-      part(g, 'cone', 0x4f8460, [0.32, 0.36, 0.32], [0, 0.98, 0]);
-      part(g, 'cone', 0xf2f6f8, [0.22, 0.22, 0.22], [0, 1.08, 0]);
-      part(g, 'sphere', 0xf2f6f8, [0.1, 0.06, 0.1], [0.26, 0.56, 0.2]);
-      part(g, 'sphere', 0xf2f6f8, [0.1, 0.06, 0.1], [-0.24, 0.38, 0.22]);
+      const snow = 0xf2f6f8;
+      const tiers: [number, number, number, number][] = [
+        [0.56, 0.46, 0.44, 0x3d6b4c],
+        [0.44, 0.42, 0.72, 0x467855],
+        [0.32, 0.36, 0.98, 0x4f8460],
+      ];
+      for (const [r, h, y, color] of tiers) part(g, 'cone', color, [r, h, r], [0, y, 0]);
+
+      // Snowcap over the top tier: a white cone sharing its apex, nudged outward so it rests on the needles
+      const [topR, topH, topY] = tiers[2];
+      const capR = topR * 0.62;
+      const capH = topH * 0.6;
+      part(g, 'cone', snow, [capR, capH, capR], [0, topY + topH / 2 + 0.006 - capH / 2, 0]);
+
+      // A few flattened snow lumps resting on the lower tiers' visible shoulders, lying along the slope
+      const lumps: [tier: number, angle: number, surfaceR: number, size: number][] = [
+        [0, 0.35, 0.48, 1],
+        [0, 2.5, 0.47, 0.85],
+        [0, 4.4, 0.49, 0.95],
+        [1, 1.3, 0.38, 0.85],
+        [1, 3.6, 0.37, 0.75],
+        [1, 5.5, 0.38, 0.8],
+      ];
+      for (const [tier, angle, surfaceR, size] of lumps) {
+        const [r, h, y] = tiers[tier];
+        const surfaceY = y + h / 2 - (surfaceR * h) / r;
+        const lump = part(
+          g,
+          'sphere',
+          snow,
+          [0.11 * size, 0.045 * size, 0.08 * size],
+          [Math.sin(angle) * (surfaceR + 0.01), surfaceY, Math.cos(angle) * (surfaceR + 0.01)],
+        );
+        lump.rotation.order = 'YXZ';
+        lump.rotation.y = angle;
+        lump.rotation.x = Math.atan2(h, r);
+      }
 
       // Spiral festive garland wire + glowing colorful Christmas light bulbs
       const bulbColors = [0xffdf59, 0xff595e, 0x62e3ff, 0xff8ed4, 0x7ef28a];
@@ -2109,33 +2180,34 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         [0.18, 0.58, 0.06],
         [0.0, 0.72, -0.04],
       ];
-      for (const tip of forks) {
-        const curve = new THREE.CatmullRomCurve3([
-          new THREE.Vector3(0, 0.0, 0),
-          new THREE.Vector3(tip[0] * 0.45, 0.28, tip[2] * 0.45),
-          new THREE.Vector3(...tip),
-        ]);
+      const forkCurves = forks.map(
+        (tip) =>
+          new THREE.CatmullRomCurve3([
+            new THREE.Vector3(0, 0.0, 0),
+            new THREE.Vector3(tip[0] * 0.45, 0.28, tip[2] * 0.45),
+            new THREE.Vector3(...tip),
+          ]),
+      );
+      for (const curve of forkCurves) {
         mesh(g, track(new THREE.TubeGeometry(curve, 6, 0.026, 5, false)), stemColor, [0, 0, 0], {
           flat: true,
           roughness: 0.88,
         });
       }
 
-      // Framing green leaves echoing the reference (tall upper-right spear + lower-right & lower-left leaves)
-      const tallLeaf = mesh(g, leafGeo, 0x6ba144, [0.24, 0.62, -0.18], { flat: true, roughness: 0.86 });
-      tallLeaf.scale.set(0.85, 1.12, 1);
-      tallLeaf.rotation.z = -0.34;
-      tallLeaf.rotation.y = 0.4;
-
-      const lowRight = mesh(g, leafGeo, 0x5c913b, [0.06, 0.08, 0.04], { flat: true, roughness: 0.86 });
-      lowRight.scale.set(0.95, 0.88, 1);
-      lowRight.rotation.z = -0.95;
-      lowRight.rotation.y = 0.35;
-
-      const lowLeft = mesh(g, leafGeo, 0x4f8033, [-0.04, 0.18, 0.02], { flat: true, roughness: 0.86 });
-      lowLeft.scale.set(0.8, 0.82, 1);
-      lowLeft.rotation.z = 0.88;
-      lowLeft.rotation.y = 0.45;
+      // Framing leaves sprout from the fork stems: each leaf's narrow base is pinned to a stem point
+      const leaves = [
+        { fork: 1, t: 0.45, color: 0x6ba144, scale: [0.85, 1.12], rotZ: -0.34, rotY: 0.4 },
+        { fork: 1, t: 0.18, color: 0x5c913b, scale: [0.95, 0.88], rotZ: -0.95, rotY: 0.35 },
+        { fork: 0, t: 0.25, color: 0x4f8033, scale: [0.8, 0.82], rotZ: 0.88, rotY: 0.45 },
+      ];
+      for (const l of leaves) {
+        const { x, y, z } = forkCurves[l.fork].getPoint(l.t);
+        const leaf = mesh(g, leafGeo, l.color, [x, y, z], { flat: true, roughness: 0.86 });
+        leaf.scale.set(l.scale[0], l.scale[1], 1);
+        leaf.rotation.z = l.rotZ;
+        leaf.rotation.y = l.rotY;
+      }
 
       const makeBlossom = (scale: number, blueHex: number) => {
         const b = new THREE.Group();

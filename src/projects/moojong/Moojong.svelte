@@ -55,7 +55,7 @@
     phase: 'playing',
     selectedName: '',
   });
-  let art = $state.raw<Pick<MoojongController, 'previews' | 'sprites'>>({ previews: {}, sprites: {} });
+  let previews = $state.raw<Record<string, string>>({});
 
   function formatTime(totalSec: number): string {
     const mins = Math.floor(totalSec / 60);
@@ -81,7 +81,7 @@
         },
       });
       controller = instance;
-      art = { previews: instance.previews, sprites: instance.sprites };
+      previews = instance.previews;
       return () => {
         instance.destroy();
         controller = null;
@@ -371,14 +371,14 @@
           </li>
         </ul>
 
-        {#if art.previews[SEASON_IDS[0]] && art.previews[BLOOM_IDS[0]]}
+        {#if previews[SEASON_IDS[0]] && previews[BLOOM_IDS[0]]}
           <div class="mt-4 grid grid-cols-2 gap-2.5 rounded-sm border border-[rgba(213,215,207,0.08)] bg-canvas/70 p-2.5">
             <div>
               <p class="mb-1.5 font-mono text-[9.5px] tracking-wider text-ochre uppercase">Seasons (Any 2)</p>
               <div class="grid grid-cols-4 gap-1">
                 {#each SEASON_IDS as id}
-                  {#if art.previews[id]}
-                    <img src={art.previews[id]} alt={id} class="w-full rounded-[3px] border border-[rgba(213,215,207,0.12)]" />
+                  {#if previews[id]}
+                    <img src={previews[id]} alt={id} class="w-full rounded-[3px] border border-[rgba(213,215,207,0.12)]" />
                   {/if}
                 {/each}
               </div>
@@ -387,8 +387,8 @@
               <p class="mb-1.5 font-mono text-[9.5px] tracking-wider text-[#d697ae] uppercase">Blooms (Any 2)</p>
               <div class="grid grid-cols-4 gap-1">
                 {#each BLOOM_IDS as id}
-                  {#if art.previews[id]}
-                    <img src={art.previews[id]} alt={id} class="w-full rounded-[3px] border border-[rgba(213,215,207,0.12)]" />
+                  {#if previews[id]}
+                    <img src={previews[id]} alt={id} class="w-full rounded-[3px] border border-[rgba(213,215,207,0.12)]" />
                   {/if}
                 {/each}
               </div>
@@ -522,8 +522,7 @@
   <!-- Asset Review Gallery -->
   {#if showGallery}
     <TileGallery
-      previews={art.previews}
-      sprites={art.sprites}
+      {previews}
       onClose={() => setGalleryOpen(false)}
     />
   {/if}

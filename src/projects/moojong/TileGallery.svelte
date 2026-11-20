@@ -9,6 +9,7 @@
   } from '@hugeicons/core-free-icons';
   import Icon from '../../components/Icon.svelte';
   import { SUIT_STYLES, TILE_DESIGNS, type TileDesign, type TileSuit } from './deck';
+  import { createTurntable } from './turntable';
 
   type ReviewStatus = 'ok' | 'tweak' | 'redo' | '';
   type ViewMode = 'both' | 'tile' | 'model';
@@ -21,7 +22,6 @@
 
   interface Props {
     previews: Record<string, string>;
-    sprites: Record<string, string>;
     onClose: () => void;
   }
 
@@ -36,7 +36,10 @@
   // Status/comment review + JSON export only exist on the dev server; Vite folds this to `false` in builds so those branches drop out.
   const REVIEW = import.meta.env.DEV;
 
-  let { previews, sprites, onClose }: Props = $props();
+  let { previews, onClose }: Props = $props();
+
+  const turntable = createTurntable();
+  $effect(() => () => turntable.destroy());
 
   function loadSaved(): Record<string, ReviewEntry> {
     try {
@@ -381,19 +384,18 @@
                 {/if}
 
                 {#if viewMode === 'both' || viewMode === 'model'}
-                  {#if sprites[design.id]}
-                    <div
-                      class="flex items-center justify-center rounded-[6px] border border-[rgba(213,215,207,0.08)] bg-[#232721] p-1.5 {viewMode === 'both'
-                        ? 'h-36 w-32'
-                        : 'h-48 w-48'}"
-                    >
-                      <img
-                        src={sprites[design.id]}
-                        alt={`${design.name} 3D model`}
-                        class="h-full w-full object-contain"
-                      />
-                    </div>
-                  {/if}
+                  <div
+                    class="flex items-center justify-center rounded-[6px] border border-[rgba(213,215,207,0.08)] bg-[#232721] p-1.5 {viewMode === 'both'
+                      ? 'h-36 w-32'
+                      : 'h-48 w-48'}"
+                  >
+                    <canvas
+                      {@attach turntable.spin(design.id)}
+                      width="256"
+                      height="256"
+                      class="h-full w-full object-contain"
+                    >{design.name} 3D model</canvas>
+                  </div>
                 {/if}
               </button>
 
@@ -498,15 +500,14 @@
           </div>
           <div class="flex flex-col items-center gap-2">
             <span class="font-mono text-[10px] tracking-wider text-ink-dim uppercase">3D Miniature</span>
-            {#if sprites[focusedDesign.id]}
-              <div class="flex h-64 w-64 items-center justify-center rounded-[8px] border border-[rgba(213,215,207,0.1)] bg-[#232721] p-3">
-                <img
-                  src={sprites[focusedDesign.id]}
-                  alt={`${focusedDesign.name} 3D model`}
-                  class="h-full w-full object-contain"
-                />
-              </div>
-            {/if}
+            <div class="flex h-64 w-64 items-center justify-center rounded-[8px] border border-[rgba(213,215,207,0.1)] bg-[#232721] p-3">
+              <canvas
+                {@attach turntable.spin(focusedDesign.id)}
+                width="512"
+                height="512"
+                class="h-full w-full object-contain"
+              >{focusedDesign.name} 3D model</canvas>
+            </div>
           </div>
         </div>
 

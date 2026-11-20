@@ -71,7 +71,6 @@ export interface MoojongController {
   resetView(): void;
   destroy(): void;
   readonly previews: Record<string, string>;
-  readonly sprites: Record<string, string>;
 }
 
 interface TileVisual {
@@ -1323,7 +1322,6 @@ export function mountMoojong({
       toggleHighlightFree,
       resetView,
       previews: atlas.previews,
-      sprites: atlas.sprites,
       destroy: runCleanups,
     };
   } catch (err) {

@@ -1,17 +1,11 @@
 import * as THREE from 'three';
-import {
-  PASTURE_HEMI_GROUND,
-  PASTURE_HEMI_SKY,
-  PASTURE_SUN_COLOR,
-  type PastureKit,
-} from '../../lib/pastureKit';
+import type { PastureKit } from '../../lib/pastureKit';
 import { SUIT_STYLES, TILE_DESIGNS, type TileDesign } from './deck';
-import { buildMiniature, createStudioBuilder } from './miniatures';
+import { buildMiniature, createStudioBuilder, createStudioStage, frameModel } from './miniatures';
 
 export interface TileArtAtlas {
   materials: Map<string, THREE.MeshStandardMaterial>;
   previews: Record<string, string>;
-  sprites: Record<string, string>;
   dispose(): void;
 }
 
@@ -51,20 +45,7 @@ export function buildTileArtAtlas(renderer: THREE.WebGLRenderer, kit: PastureKit
   const prevClearAlpha = renderer.getClearAlpha();
 
   const studio = createStudioBuilder(kit);
-
-  const studioScene = new THREE.Scene();
-  studioScene.add(new THREE.HemisphereLight(PASTURE_HEMI_SKY, PASTURE_HEMI_GROUND, 2.35));
-  const keyLight = new THREE.DirectionalLight(PASTURE_SUN_COLOR, 2.85);
-  keyLight.position.set(-4.5, 10, 7.5);
-  studioScene.add(keyLight);
-  const rimLight = new THREE.DirectionalLight(0xd9ebd9, 0.8);
-  rimLight.position.set(6, 4.5, -5);
-  studioScene.add(rimLight);
-
-  // Generous orthographic studio frustum so rotated 3D corners never clip before 2D pixel cropping
-  const studioCam = new THREE.OrthographicCamera(-1.35, 1.35, 1.35, -1.35, 0.1, 30);
-  studioCam.position.set(3.8, 3.25, 4.9);
-  studioCam.lookAt(0, 0, 0);
+  const stage = createStudioStage();
 
   renderer.setPixelRatio(1);
   renderer.setSize(studioSize, studioSize, false);
@@ -83,39 +64,22 @@ export function buildTileArtAtlas(renderer: THREE.WebGLRenderer, kit: PastureKit
 
   const materials = new Map<string, THREE.MeshStandardMaterial>();
   const previews: Record<string, string> = {};
-  const sprites: Record<string, string> = {};
   const textures: THREE.CanvasTexture[] = [];
   const maxAniso = Math.min(4, renderer.capabilities.getMaxAnisotropy());
-  const box = new THREE.Box3();
-  const sphere = new THREE.Sphere();
-  const centerVec = new THREE.Vector3();
 
   for (const design of TILE_DESIGNS) {
-    const model = buildMiniature(studio, design.id);
-    const holder = new THREE.Group();
-    holder.add(model);
-    holder.updateMatrixWorld(true);
-
-    // Pre-fit comfortably inside the studio frustum using bounding sphere so nothing clips
-    box.setFromObject(model);
-    box.getBoundingSphere(sphere);
-    box.getCenter(centerVec);
-    const radius = Math.max(sphere.radius, 0.001);
-    const preScale = 1.05 / radius;
-    model.scale.multiplyScalar(preScale);
-    model.position.set(-centerVec.x * preScale, -centerVec.y * preScale, -centerVec.z * preScale);
-
-    studioScene.add(holder);
+    const holder = frameModel(buildMiniature(studio, design.id));
+    stage.scene.add(holder);
     renderer.clear();
-    renderer.render(studioScene, studioCam);
-    studioScene.remove(holder);
+    renderer.render(stage.scene, stage.camera);
+    stage.scene.remove(holder);
 
     // Measure exact rendered 2D pixel silhouette bounds & fill density
     scratchCtx.clearRect(0, 0, studioSize, studioSize);
     scratchCtx.drawImage(renderer.domElement, 0, 0);
     const bounds = measureSpritePixels(scratchCtx, studioSize, studioSize);
 
-    // Build an optically normalized studio sprite (used for both tile face & review gallery)
+    // Build an optically normalized studio sprite for the tile face
     normalizedSpriteCtx.clearRect(0, 0, studioSize, studioSize);
     const normBox = 204;
     const fit = Math.min(normBox / bounds.w, normBox / bounds.h);
@@ -138,8 +102,6 @@ export function buildTileArtAtlas(renderer: THREE.WebGLRenderer, kit: PastureKit
       drawW,
       drawH,
     );
-
-    sprites[design.id] = normalizedSpriteCanvas.toDataURL('image/png');
 
     const canvas = document.createElement('canvas');
     canvas.width = tileW;
@@ -175,7 +137,6 @@ export function buildTileArtAtlas(renderer: THREE.WebGLRenderer, kit: PastureKit
   return {
     materials,
     previews,
-    sprites,
     dispose() {
       for (const tex of textures) tex.dispose();
       for (const mat of materials.values()) mat.dispose();

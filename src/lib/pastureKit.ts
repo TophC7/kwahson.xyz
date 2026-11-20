@@ -94,8 +94,9 @@ export function createPastureKit(): PastureKit {
       const ear = part(cow, 'box', patch, [0.24, 0.09, 0.14], [x * 2, 0.89, 0.53]);
       ear.rotation.z = x > 0 ? 0.25 : -0.25;
     }
+    // Hangs from the top of the rump down to the tuft
     const tail = part(cow, 'cylinder', white, [0.025, 0.4, 0.025], [0, 0.55, -0.61]);
-    tail.rotation.x = -0.65;
+    tail.rotation.x = 0.65;
     part(cow, 'sphere', patch, [0.06, 0.09, 0.06], [0, 0.38, -0.72]);
     return { mesh: cow, legs };
   }
