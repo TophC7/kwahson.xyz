@@ -6,18 +6,21 @@ import { createPastureKit, PASTURE_HEMI_SKY, PASTURE_HEMI_GROUND, PASTURE_SUN_CO
 import { buildPastureTable } from '../../lib/pastureTable';
 import { randomSeed } from '../../lib/rng';
 import { createTacticsAudio } from './audio';
-import { COLS, ROWS, CROP_COUNT, HEROES, ENEMIES, ITEMS, PROPS, type Difficulty, type HeroKind, type ItemKind } from './data';
+import { COLS, ROWS, HEROES, ENEMIES, ITEMS, PROPS, type Difficulty, type HeroKind, type ItemKind } from './data';
 import { buildTacticsModel, GALLERY_ITEMS } from './models';
 import { createPlayback, type EntityVisual } from './playback';
-import { apply, danger, enemyReach, itemTargets, maxHp, moveTargets, skillTargets, stars, teamOf, tileAt, type Action, type Entity, type GameState, type Tile } from './rules';
+import {
+  apply, danger, enemyReach, entityAt, isHero, itemTargets, maxHp, moveTargets, skillTargets, stars, teamOf, tileIndex, tileOf,
+  type Action, type Entity, type GameState, type Hero, type Tile,
+} from './rules';
 import { decodeSave, encodeSave, readStoredCode, storeCode } from './save';
 import { createGame } from './scenario';
 
 export interface HeroHud {
-  id: number; kind: HeroKind; name: string; hp: number; maxHp: number; shield: boolean;
+  id: number; kind: HeroKind; hp: number; shield: boolean;
   canMove: boolean; canAct: boolean; alive: boolean;
 }
-export interface ItemHud { kind: ItemKind; name: string; charges: number; power: number; usable: boolean }
+export interface ItemHud { kind: ItemKind; charges: number; usable: boolean }
 export interface SelectedHud {
   id: number; team: 'herd' | 'sky' | 'neutral'; isHero: boolean; name: string; hp: number | null;
   maxHp: number | null; move: number | null; abilityName: string; abilityDesc: string; canMove: boolean; canSkill: boolean;
@@ -27,7 +30,7 @@ export interface TacticsHudState {
   phase: 'player' | 'enemy' | 'won' | 'lost'; busy: boolean; fastForward: boolean; canUndo: boolean; muted: boolean; zoomed: boolean;
   status: string; heroes: HeroHud[]; items: ItemHud[]; selected: SelectedHud | null;
   mode: 'idle' | 'move' | 'skill' | 'item'; pendingItem: ItemKind | null; preview: string[] | null;
-  idleHeroes: number; incoming: number; enemiesLeft: number; crops: number; cropsTotal: number;
+  idleHeroes: number; incoming: number; enemiesLeft: number; crops: number;
   danger: boolean; stars: 0 | 1 | 2 | 3;
 }
 export interface TacticsController {
@@ -43,10 +46,8 @@ export interface TacticsController {
 
 const TILE = 1.4, GROUND = 0.09;
 const INFO = { ...HEROES, ...ENEMIES, ...PROPS };
-const key = (p: Tile) => p.y * COLS + p.x;
 const tileCenter = (x: number, y: number) => new THREE.Vector3((x - (COLS - 1) / 2) * TILE, GROUND, (y - (ROWS - 1) / 2) * TILE);
 const DANGER_KEY = 'pasture-tactics-danger';
-const hero = (e: Entity): e is Entity & { kind: HeroKind } => Object.hasOwn(HEROES, e.kind);
 // Three-quarter view: camera swung `yaw` around the board and CAM_PITCH above the ground. Portrait screens
 // face the board square-on, because the swing widens the 8-column grid past a phone's width.
 const CAM_PITCH = 0.76, CAM_DIST = 24;
@@ -81,8 +82,8 @@ function removeSprite(sprite: THREE.Sprite) {
   sprite.material.dispose();
 }
 
-export function mountPastureTactics({ viewport, onState, insets }: {
-  viewport: HTMLElement; onState: (patch: Partial<TacticsHudState>) => void; insets: () => Insets;
+export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }: {
+  viewport: HTMLElement; onState: (patch: Partial<TacticsHudState>) => void; insets: () => Insets; onEndTurnKey: () => void;
 }): TacticsController {
   const cleanups: (() => void)[] = [];
   const abort = new AbortController(), { signal } = abort;
@@ -154,7 +155,7 @@ export function mountPastureTactics({ viewport, onState, insets }: {
     const hatchMap = new THREE.CanvasTexture(stripes); hatchMap.colorSpace = THREE.SRGBColorSpace;
     cleanups.push(() => hatchMap.dispose());
     const overlays = Array.from({ length: COLS * ROWS }, (_, i) => {
-      const x = i % COLS, y = Math.floor(i / COLS), pos = tileCenter(x, y);
+      const { x, y } = tileOf(i), pos = tileCenter(x, y);
       kit.part(table, 'box', (x + y) % 2 ? 0x85b45c : 0x8dbd62, [TILE - 0.05, 0.02, TILE - 0.05], [pos.x, 0.085, pos.z]).receiveShadow = true;
       const fill = new THREE.Mesh(planeGeo, overlayMat(0xffffff, 0));
       const hatchMat = overlayMat(0xffffff, 0); hatchMat.map = hatchMap;
@@ -169,13 +170,13 @@ export function mountPastureTactics({ viewport, onState, insets }: {
     // Faceted low-poly shell, unit radius; each visual scales it to hug its model.
     const bubbleGeo = studio.track(new THREE.IcosahedronGeometry(1, 1));
     cleanups.push(() => hitMat.dispose());
-    const visuals = new Map<number, EntityVisual>(), visualEntities = new Map<number, Entity>();
+    const visuals = new Map<number, EntityVisual>();
     const hits: THREE.Mesh[] = [], eggs = new Map<number, THREE.Group>();
     const floats: { sprite: THREE.Sprite; life: number }[] = [];
     const bursts = createBursts(kit, effects);
     let threatState: GameState | null = null, threats: number[] = [];
     function setEgg(x: number, y: number, on: boolean) {
-      const i = y * COLS + x, old = eggs.get(i);
+      const i = tileIndex({ x, y }), old = eggs.get(i);
       if (!on) { old?.removeFromParent(); eggs.delete(i); }
       else if (!old) {
         const { model } = sizedModel('egg', 0.5 * TILE);
@@ -183,11 +184,11 @@ export function mountPastureTactics({ viewport, onState, insets }: {
       }
     }
     function redrawPips(id: number, hp: number) {
-      const v = visuals.get(id), e = visualEntities.get(id);
-      if (!v || !e) return;
-      const n = maxHp(e), team = teamOf(e), risk = team === 'herd' ? threats[key(e)] ?? 0 : 0;
+      const v = visuals.get(id); if (!v) return;
+      const e = v.entity;
+      const n = maxHp(e), team = teamOf(e), risk = team === 'herd' ? threats[tileIndex(e)] ?? 0 : 0;
       const ko = hp > 0 && risk >= hp;
-      v.pips.visible = n !== null && (hero(e) || team === 'sky' || e.kind === 'barn' || e.kind === 'crop' || hp !== n || risk > 0 || e.shield);
+      v.pips.visible = n !== null && (isHero(e) || team === 'sky' || e.kind === 'barn' || e.kind === 'crop' || hp !== n || risk > 0 || e.shield);
       if (!v.pips.visible || !n) return;
       // Bonus HP from Mend shows as extra gold pips past max.
       const total = Math.max(n, hp);
@@ -226,7 +227,7 @@ export function mountPastureTactics({ viewport, onState, insets }: {
         ctx.fillStyle = '#fff4ef'; ctx.font = 'bold 11px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText('KO', kx + 11, cy + 1);
       }
-      v.pips.material.opacity = hero(e) && e.moved && e.acted ? 0.5 : 1;
+      v.pips.material.opacity = isHero(e) && e.moved && e.acted ? 0.5 : 1;
       texture.needsUpdate = true;
     }
     // Creates the shield shell on first use and snaps it back to its resting size and look.
@@ -259,8 +260,8 @@ export function mountPastureTactics({ viewport, onState, insets }: {
       model.position.y = hover; pips.position.y = hover + height + 0.16; pips.scale.set(2.2, 2.2 * BAR_H / BAR_W, 1);
       hit.scale.set(0.8 * TILE, height, 0.8 * TILE); hit.position.y = hover + height / 2; hit.userData.id = e.id; hits.push(hit);
       holder.add(model, pips, hit); holder.position.copy(tileCenter(e.x, e.y)); holder.rotation.y = yaw(e.dir); pieces.add(holder);
-      const v: EntityVisual = { kind: e.kind, holder, model, baseScale, hover, pips, hit, bubble: null };
-      visuals.set(e.id, v); visualEntities.set(e.id, e);
+      const v: EntityVisual = { entity: e, holder, model, baseScale, hover, pips, hit, bubble: null };
+      visuals.set(e.id, v);
       if (e.shield) bubbleFor(v);
       redrawPips(e.id, e.hp);
       return v;
@@ -268,18 +269,18 @@ export function mountPastureTactics({ viewport, onState, insets }: {
     function removeEntity(id: number) {
       const v = visuals.get(id); if (!v) return;
       hits.splice(hits.indexOf(v.hit), 1); removeSprite(v.pips); clearBubble(v); v.holder.removeFromParent();
-      visuals.delete(id); visualEntities.delete(id);
+      visuals.delete(id);
     }
     function syncVisuals(s: GameState) {
-      for (const [id, v] of visuals) if (!s.entities.some(e => e.id === id && e.kind === v.kind)) removeEntity(id);
+      for (const [id, v] of visuals) if (!s.entities.some(e => e.id === id && e.kind === v.entity.kind)) removeEntity(id);
       for (const e of s.entities) {
         const v = visuals.get(e.id) ?? addEntity(e);
-        visualEntities.set(e.id, e); v.holder.position.copy(tileCenter(e.x, e.y)); v.holder.rotation.set(0, yaw(e.dir), 0); v.holder.scale.setScalar(1);
+        v.entity = e; v.holder.position.copy(tileCenter(e.x, e.y)); v.holder.rotation.set(0, yaw(e.dir), 0); v.holder.scale.setScalar(1);
         v.model.position.set(0, v.hover, 0); v.model.rotation.set(0, 0, 0); v.model.scale.setScalar(v.baseScale); v.model.visible = true;
         if (e.shield) bubbleFor(v);
         else clearBubble(v);
       }
-      for (const i of eggs.keys()) if (!s.traps.some(t => key(t) === i)) setEgg(i % COLS, Math.floor(i / COLS), false);
+      for (const i of eggs.keys()) if (!s.traps.some(t => tileIndex(t) === i)) { const { x, y } = tileOf(i); setEgg(x, y, false); }
       for (const p of s.traps) setEgg(p.x, p.y, true);
     }
     function floatText(pos: THREE.Vector3, text: string, color: string) {
@@ -292,7 +293,7 @@ export function mountPastureTactics({ viewport, onState, insets }: {
     function clearFloats() { for (const { sprite } of floats) removeSprite(sprite); floats.length = 0; }
     cleanups.push(() => { for (const id of visuals.keys()) removeEntity(id); clearFloats(); });
 
-    let state: GameState, roster: (Entity & { kind: HeroKind })[] = [], status = '';
+    let state: GameState, roster: Hero[] = [], status = '';
     let selectedId: number | null = null, mode: TacticsHudState['mode'] = 'idle', pendingItem: ItemKind | null = null;
     let pending: Extract<Action, { type: 'skill' | 'item' }> | null = null, preview: string[] | null = null;
     const previewTiles = new Set<number>(), undoStack: GameState[] = [];
@@ -302,30 +303,34 @@ export function mountPastureTactics({ viewport, onState, insets }: {
     let busy = false, enemyPhase = false, hinted = false, generation = 0, code = '';
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const playback = createPlayback({ tileCenter, visual: id => visuals.get(id), addEntity, removeEntity, setEgg,
-      floatText, redrawPips, effects, kit, bursts, audio, setStatus(text) {
-        if (text === "Visitors' turn" && !hinted) { hinted = true; text = 'Hold the screen edge to fast-forward'; }
-        setStatus(text);
+      floatText, redrawPips, effects, kit, bursts, audio, model: (id, footprint) => sizedModel(id, footprint).model,
+      onPhase(phase) {
+        // The first enemy phase teaches fast-forward instead of naming the phase.
+        if (phase === 'player') setStatus('Your turn');
+        else if (hinted) setStatus("Visitors' turn");
+        else { hinted = true; setStatus('Hold the screen edge to fast-forward'); }
       },
     }, reduceMotion);
     cleanups.push(() => playback.cancel());
     function setStatus(text: string) { status = text; onState({ status }); }
+    const restingStatus = () => selectedId === null ? 'Tap a herd animal to give orders' : INFO[current()!.kind].name;
     function current() { return state.entities.find(e => e.id === selectedId); }
     function ready() { return !busy && state.phase === 'player'; }
     function syncHud() {
       const e = current(), info = e && INFO[e.kind], ability = info && ('skill' in info ? info.skill : 'attack' in info ? info.attack : null);
       const heroes = roster.map(({ id, kind }): HeroHud => {
-        const alive = state.entities.find(e => e.id === id), def = HEROES[kind];
-        return { id, kind, name: def.name, hp: alive?.hp ?? 0, maxHp: def.hp, shield: !!alive?.shield,
+        const alive = state.entities.find(e => e.id === id);
+        return { id, kind, hp: alive?.hp ?? 0, shield: !!alive?.shield,
           canMove: !!alive && !alive.moved, canAct: !!alive && !alive.acted, alive: !!alive };
       });
       const selected: SelectedHud | null = e && info ? {
-        id: e.id, team: teamOf(e), isHero: hero(e), name: info.name, hp: maxHp(e) === null ? null : e.hp, maxHp: maxHp(e),
+        id: e.id, team: teamOf(e), isHero: isHero(e), name: info.name, hp: maxHp(e) === null ? null : e.hp, maxHp: maxHp(e),
         move: 'move' in info ? info.move : null, abilityName: ability?.name ?? (maxHp(e) === null ? 'Obstacle' : 'Cover'),
         abilityDesc: ability?.desc ?? (e.kind === 'barn' ? 'Defend the barn.' : maxHp(e) === null ? 'Cannot be moved or damaged.' : 'Blocks movement and can take damage.'),
-        canMove: hero(e) && moveTargets(state, e.id).length > 0, canSkill: hero(e) && skillTargets(state, e.id).length > 0,
+        canMove: isHero(e) && moveTargets(state, e.id).length > 0, canSkill: isHero(e) && skillTargets(state, e.id).length > 0,
       } : null;
-      const items = state.items.map(({ kind, charges }) => ({ kind, charges, name: ITEMS[kind].name, power: ITEMS[kind].power,
-        usable: !!e && hero(e) && itemTargets(state, e.id, kind).length > 0 }));
+      const items = state.items.map(({ kind, charges }): ItemHud => ({ kind, charges,
+        usable: !!e && isHero(e) && itemTargets(state, e.id, kind).length > 0 }));
       const crops = state.entities.filter(e => e.kind === 'crop').length;
       if (!busy && state.phase === 'lost') status = heroes.some(h => h.alive) ? 'The barn has fallen' : 'The herd is lost';
       if (!busy && state.phase === 'won') status = state.objective === 'hold' ? 'Pasture held' : 'Pasture cleared';
@@ -333,13 +338,13 @@ export function mountPastureTactics({ viewport, onState, insets }: {
         phase: enemyPhase ? 'enemy' : state.phase, busy, fastForward: playback.timeScale > 1, canUndo: !!undoStack.length,
         muted: audio.isMuted(), danger: showDanger, stars: stars(state), zoomed, status, heroes, items, selected, mode, pendingItem, preview,
         idleHeroes: heroes.filter(h => h.canAct).length, incoming: state.waves.filter(w => w.turn === state.turn).length,
-        enemiesLeft: state.entities.filter(e => teamOf(e) === 'sky').length, crops, cropsTotal: CROP_COUNT });
+        enemiesLeft: state.entities.filter(e => teamOf(e) === 'sky').length, crops });
     }
     function paintFills() {
-      const selected = current(), selectedTile = selected && key(selected);
+      const selected = current(), selectedTile = selected && tileIndex(selected);
       for (let i = 0; i < overlays.length; i++) {
         const { fill, hatch, frame } = overlays[i], risk = threats[i] ?? 0;
-        const target = legal.some(p => key(p) === i), moving = target && mode === 'move';
+        const target = legal.some(p => tileIndex(p) === i), moving = target && mode === 'move';
         let color = 0, opacity = 0;
         if (previewTiles.has(i)) { color = 0xffffff; opacity = 0.5; }
         else if (moving) { color = 0x6fb3d9; opacity = 0.38; }
@@ -363,13 +368,13 @@ export function mountPastureTactics({ viewport, onState, insets }: {
       const board = busy ? null : state;
       if (board !== threatState) {
         threatState = board; threats = board?.phase === 'player' ? danger(board) : [];
-        for (const e of visualEntities.values()) redrawPips(e.id, e.hp);
+        for (const { entity } of visuals.values()) redrawPips(entity.id, entity.hp);
       }
       inspectMove.clear(); inspectAttack.clear();
       if (board?.phase === 'player' && e && teamOf(e) === 'sky') {
         const reach = enemyReach(board, e.id);
-        for (const p of reach.move) inspectMove.add(key(p));
-        for (const p of reach.attack) inspectAttack.add(key(p));
+        for (const p of reach.move) inspectMove.add(tileIndex(p));
+        for (const p of reach.attack) inspectAttack.add(tileIndex(p));
       }
       paintFills();
       for (const { ring } of overlays) ring.visible = false;
@@ -385,20 +390,20 @@ export function mountPastureTactics({ viewport, onState, insets }: {
     function focus(id: number | null) {
       selectedId = id;
       const e = current();
-      if (e && hero(e) && ready()) {
+      if (e && isHero(e) && ready()) {
         setMode(moveTargets(state, e.id).length ? 'move' : skillTargets(state, e.id).length ? 'skill' : 'idle');
       } else setMode('idle');
     }
     function select(id: number | null) {
       if (!ready() || (id !== null && !state.entities.some(e => e.id === id))) return;
       focus(id === selectedId ? null : id); audio.play(selectedId === null ? 'deselect' : 'select');
-      status = selectedId === null ? 'Tap a herd animal to give orders' : INFO[current()!.kind].name;
+      status = restingStatus();
       refresh();
     }
     function invalid(message: string) { audio.play('invalid'); setStatus(message); }
     function choose(next: 'skill' | 'item', item: ItemKind | null = null) {
       if (!ready()) return;
-      const e = current(); if (!e || !hero(e)) return invalid('Select a herd animal');
+      const e = current(); if (!e || !isHero(e)) return invalid('Select a herd animal');
       if (mode === next && pendingItem === item) { disarm(e); audio.play('deselect'); status = INFO[e.kind].name; refresh(); return; }
       if (e.acted) return invalid('Already acted');
       if (item && !state.items.find(i => i.kind === item)?.charges) return invalid('No charges left');
@@ -407,7 +412,7 @@ export function mountPastureTactics({ viewport, onState, insets }: {
       setMode(next, item); audio.play('uiClick'); status = 'Choose a target'; refresh();
     }
     function showPreview(action: Extract<Action, { type: 'item' | 'skill' }>) {
-      const result = apply(state, action); clearPreview(); pending = action; preview = []; previewTiles.add(key(action));
+      const result = apply(state, action); clearPreview(); pending = action; preview = []; previewTiles.add(tileIndex(action));
       const positions = new Map(state.entities.map(e => [e.id, { x: e.x, y: e.y }]));
       const entity = (id: number) => state.entities.find(e => e.id === id)!;
       for (const ev of result.events) {
@@ -420,20 +425,20 @@ export function mountPastureTactics({ viewport, onState, insets }: {
           case 'bump': {
             const blocker = ev.blockerId !== null && entity(ev.blockerId);
             preview.push(name + ' hits ' + (blocker ? INFO[blocker.kind].name : 'the edge'));
-            if (blocker) previewTiles.add(key(positions.get(blocker.id)!)); break;
+            if (blocker) previewTiles.add(tileIndex(positions.get(blocker.id)!)); break;
           }
           case 'move': {
-            for (const p of ev.path) previewTiles.add(key(p));
+            for (const p of ev.path) previewTiles.add(tileIndex(p));
             if (ev.path.length) positions.set(ev.id, ev.path[ev.path.length - 1]);
             if (ev.style === 'slide') preview.push(name + ' pushed'); break;
           }
-          case 'spawn': preview.push('Places ' + INFO[ev.entity.kind].name); previewTiles.add(key(ev.entity)); break;
-          case 'egg': if (ev.on) preview.push('Lays an egg'); previewTiles.add(key(ev)); break;
+          case 'spawn': preview.push('Places ' + INFO[ev.entity.kind].name); previewTiles.add(tileIndex(ev.entity)); break;
+          case 'egg': if (ev.on) preview.push('Lays an egg'); previewTiles.add(tileIndex(ev)); break;
           case 'item':
-            if (ev.item === 'apple') preview.push(INFO[tileAt(state, ev.x, ev.y)!.kind].name + ' can move again');
+            if (ev.item === 'apple') preview.push(INFO[entityAt(state, ev.x, ev.y)!.kind].name + ' can move again');
             break;
         }
-        if ('id' in ev && ev.t !== 'skill' && ev.t !== 'item') previewTiles.add(key(positions.get(ev.id)!));
+        if ('id' in ev && ev.t !== 'skill' && ev.t !== 'item') previewTiles.add(tileIndex(positions.get(ev.id)!));
       }
       if (!preview.length) preview.push('No damage');
       audio.play('select'); status = 'Confirm the order or choose another target'; refresh();
@@ -442,22 +447,22 @@ export function mountPastureTactics({ viewport, onState, insets }: {
       if (!ready()) return;
       const e = current();
       if (pending) clearPreview(); else if (e && (mode === 'skill' || mode === 'item')) disarm(e); else focus(null);
-      audio.play('deselect'); status = selectedId === null ? 'Tap a herd animal to give orders' : INFO[current()!.kind].name; refresh();
+      audio.play('deselect'); status = restingStatus(); refresh();
     }
     function tap(tile: Tile | null) {
       if (!tile) { cancel(); return; }
-      const e = tileAt(state, tile.x, tile.y);
+      const e = entityAt(state, tile.x, tile.y);
       if (!ready()) {
-        if (e && !hero(e)) { selectedId = e.id; setMode('idle'); refresh(); } return;
+        if (e && !isHero(e)) { selectedId = e.id; setMode('idle'); refresh(); } return;
       }
       // Tapping a skill target straight from move mode (e.g. a wounded friend for Mend) previews the skill.
-      const actor = current(), onTile = (p: Tile) => key(p) === key(tile);
-      if (mode === 'move' && actor && hero(actor) && !actor.acted && !legal.some(onTile) && skillTargets(state, actor.id).some(onTile)) {
+      const actor = current(), onTile = (p: Tile) => tileIndex(p) === tileIndex(tile);
+      if (mode === 'move' && actor && isHero(actor) && !actor.acted && !legal.some(onTile) && skillTargets(state, actor.id).some(onTile)) {
         setMode('skill'); showPreview({ type: 'skill', id: actor.id, ...tile }); return;
       }
       if (selectedId !== null && legal.some(onTile)) {
         if (mode === 'move') void commit({ type: 'move', id: selectedId, ...tile });
-        else if (pending && key(pending) === key(tile)) confirm();
+        else if (pending && tileIndex(pending) === tileIndex(tile)) confirm();
         else if (mode === 'skill') showPreview({ type: 'skill', id: selectedId, ...tile });
         else if (mode === 'item' && pendingItem) showPreview({ type: 'item', item: pendingItem, id: selectedId, ...tile });
       } else if (pending) cancel();
@@ -516,8 +521,8 @@ export function mountPastureTactics({ viewport, onState, insets }: {
     function pick(x: number, y: number): Tile | null {
       if (!cam.setRay(raycaster, x, y)) return null;
       // Units win over props they stand behind, so a hero hidden by the barn stays tappable.
-      const found = raycaster.intersectObjects(hits, false).map(h => visualEntities.get(h.object.userData.id)).filter(e => e !== undefined);
-      const e = found.find(e => teamOf(e) === 'sky' || hero(e)) ?? found[0];
+      const found = raycaster.intersectObjects(hits, false).map(h => visuals.get(h.object.userData.id)?.entity).filter(e => e !== undefined);
+      const e = found.find(e => teamOf(e) === 'sky' || isHero(e)) ?? found[0];
       if (e) return { x: e.x, y: e.y };
       if (!raycaster.ray.intersectPlane(ground, point)) return null;
       const tx = Math.floor(point.x / TILE + COLS / 2), ty = Math.floor(point.z / TILE + ROWS / 2);
@@ -528,9 +533,9 @@ export function mountPastureTactics({ viewport, onState, insets }: {
       onTap: (x, y) => { if (!pressedBusy || busy) tap(pick(x, y)); },
       onHover(x, y, event) {
         if (event.pointerType !== 'mouse' || busy) return;
-        const p = pick(x, y), i = p ? key(p) : -1;
+        const p = pick(x, y), i = p ? tileIndex(p) : -1;
         if (hoverTile !== i) { hoverTile = i; paintFills(); }
-        renderer.domElement.style.cursor = p && (tileAt(state, p.x, p.y) || legal.some(t => key(t) === i)) ? 'pointer' : 'default';
+        renderer.domElement.style.cursor = p && (entityAt(state, p.x, p.y) || legal.some(t => tileIndex(t) === i)) ? 'pointer' : 'default';
       },
       onPress(event) {
         audio.unlock(); pressedBusy = busy;
@@ -548,7 +553,7 @@ export function mountPastureTactics({ viewport, onState, insets }: {
     }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); cam.refit();
     function load(s: GameState, initial: GameState, message: string) {
-      interrupt(); undoStack.length = 0; state = s; roster = initial.entities.filter(hero);
+      interrupt(); undoStack.length = 0; state = s; roster = initial.entities.filter(isHero);
       focus(null); hoverTile = -1; status = message; cam.snapHome(); syncVisuals(s); save(); refresh();
     }
     function newFight(difficulty: Difficulty, seed = randomSeed()) {
@@ -573,7 +578,7 @@ export function mountPastureTactics({ viewport, onState, insets }: {
         case 'z': case 'u': undo(); break;
         case 'tab': {
           if (!ready()) return;
-          const active = state.entities.filter(e => hero(e) && !e.acted);
+          const active = state.entities.filter(e => isHero(e) && !e.acted);
           if (!active.length) return;
           const i = active.findIndex(e => e.id === selectedId), step = e.shiftKey ? -1 : 1;
           focus(active[(i + step + active.length) % active.length].id); audio.play('select'); refresh(); break;
@@ -582,6 +587,7 @@ export function mountPastureTactics({ viewport, onState, insets }: {
         case 'enter': if (!pending) return; confirm(); break;
         case 'm': toggleMute(); break;
         case 'd': toggleDanger(); break;
+        case 'e': onEndTurnKey(); break;
         default: return;
       }
       e.preventDefault();
@@ -607,7 +613,7 @@ export function mountPastureTactics({ viewport, onState, insets }: {
     }
     raf = requestAnimationFrame(tick); cleanups.push(() => cancelAnimationFrame(raf));
     return { select, chooseSkill: () => choose('skill'), chooseItem: kind => choose('item', kind),
-      wait() { const e = current(); if (ready() && e && hero(e) && !e.acted) void commit({ type: 'wait', id: e.id }); },
+      wait() { const e = current(); if (ready() && e && isHero(e) && !e.acted) void commit({ type: 'wait', id: e.id }); },
       confirm, cancel, undo, endTurn: () => { void commit({ type: 'endTurn' }); }, newFight, retry: () => newFight(state.difficulty, state.seed),
       toggleMute, toggleDanger, resetView() { cam.resetView(); audio.play('uiClick'); }, refit: cam.refit, portraits, destroy };
   } catch (error) { destroy(); throw error; }

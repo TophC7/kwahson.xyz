@@ -2,7 +2,7 @@ export const COLS = 8;
 export const ROWS = 9;
 export const POWER_PER_TURN = 3;
 export const HOLD_TURNS = 6;
-export const BARN_HP = 6;
+const BARN_HP = 6;
 export const MAX_EGGS = 3;
 export const CROP_COUNT = 4;
 // Mend can heal this far past max HP; the excess lasts until the next player turn.
@@ -50,7 +50,7 @@ export interface CostParts {
   overheal?: number;
 }
 
-export const PRICES = {
+const PRICES = {
   hp: 1, move: 1, dmg: 1, heal: 1, reach: [0, 1, 2], push: 1, charge: 1,
   leap: 1, fly: 1, shield: 2, extraTiles: 0.5, wall: 1, taunt: 1, extraMove: 2, overheal: 1,
 } as const;
@@ -63,6 +63,11 @@ export function cost(parts: CostParts): number {
     total += part === 'reach' ? PRICES.reach[n <= 1 ? 0 : n === 2 ? 1 : 2] : n * PRICES[part];
   }
   return total;
+}
+
+/** A unit's price: its stats plus its ability parts. */
+export function unitCost(u: Unit): number {
+  return cost({ hp: u.hp, move: u.move, fly: +u.fly, ...u.parts });
 }
 
 interface Unit {
@@ -81,37 +86,37 @@ export const HEROES: Record<HeroKind, Unit & { skill: Ability }> = {
   cow: {
     name: 'Cow', model: 'cow', size: 0.8, hp: 5, move: 3, fly: false,
     skill: { name: 'Shove', desc: 'Push a neighbour 1 tile. Collisions hurt both.' },
-    parts: { hp: 5, move: 3, push: 1, dmg: 1 },
+    parts: { push: 1, dmg: 1 },
   },
   healer: {
     name: 'Healer', model: 'healer-cow', size: 0.8, hp: 2, move: 3, fly: false,
     skill: { name: 'Mend', desc: 'Heal a friend within 3 tiles for 2. Healing past full is bonus HP until your next turn.' },
-    parts: { hp: 2, move: 3, heal: 2, reach: 3, overheal: 1 },
+    parts: { heal: 2, reach: 3, overheal: 1 },
   },
   bee: {
     name: 'Bee', model: 'bee', size: 0.8, hp: 2, move: 4, fly: true,
     skill: { name: 'Sting', desc: '1 damage up to 3 tiles in a line, over anything.' },
-    parts: { hp: 2, move: 4, fly: 1, dmg: 1, reach: 3 },
+    parts: { dmg: 1, reach: 3 },
   },
   goat: {
     name: 'Goat', model: 'goat', size: 0.8, hp: 4, move: 2, fly: false,
     skill: { name: 'Ram', desc: 'Charge a line: 2 damage and a push.' },
-    parts: { hp: 4, move: 2, dmg: 2, push: 1, charge: 1 },
+    parts: { dmg: 2, push: 1, charge: 1 },
   },
   cat: {
     name: 'Cat', model: 'barn-cat', size: 0.8, hp: 3, move: 5, fly: false,
     skill: { name: 'Pounce', desc: 'Leap over a neighbour for 1 damage.' },
-    parts: { hp: 3, move: 5, dmg: 1, leap: 1 },
+    parts: { dmg: 1, leap: 1 },
   },
   hen: {
     name: 'Hen', model: 'chicken', size: 0.8, hp: 3, move: 4, fly: false,
     skill: { name: 'Egg', desc: 'Lay a trap within 2 tiles: 2 damage to the first ground visitor on it.' },
-    parts: { hp: 3, move: 4, dmg: 2, reach: 2 },
+    parts: { dmg: 2, reach: 2 },
   },
   sheep: {
     name: 'Sheep', model: 'sheep', size: 0.8, hp: 4, move: 3, fly: false,
     skill: { name: 'Wool', desc: 'Shield a friend within 2 tiles from the next hit.' },
-    parts: { hp: 4, move: 3, shield: 1, reach: 2 },
+    parts: { shield: 1, reach: 2 },
   },
 };
 
@@ -121,48 +126,48 @@ export const ENEMIES: Record<EnemyKind, EnemyData> = {
   visitor: {
     name: 'Visitor', model: 'alien', size: 0.8, hp: 2, move: 3, fly: false, damage: 1, weight: 3,
     attack: { name: 'Zap', desc: '1 damage to the next tile.' },
-    parts: { hp: 2, move: 3, dmg: 1 },
+    parts: { dmg: 1 },
   },
   // Priced as one unit with three attacks: it never acts itself and its three 1-HP members die to any splash.
   sprouts: {
     name: 'Sprouts', model: 'sprouts', size: 0.8, hp: 3, move: 3, fly: false, damage: 1, weight: 2,
     attack: { name: 'Split', desc: 'Splits into red, yellow and blue sprouts on its next turn. Each hit knocks one out first.' },
-    parts: { hp: 3, move: 3, dmg: 3, reach: 3, extraTiles: 4 },
+    parts: { dmg: 3, reach: 3, extraTiles: 4 },
   },
   scout: {
     name: 'Scout', model: 'scout-pod', size: 0.95, hp: 2, move: 2, fly: false, damage: 1, weight: 2,
     attack: { name: 'Laser', desc: '1 damage to the first thing within 4 tiles in a line.' },
-    parts: { hp: 2, move: 2, dmg: 1, reach: 4 },
+    parts: { dmg: 1, reach: 4 },
   },
   brute: {
     name: 'Brute', model: 'brute', size: 1.05, hp: 4, move: 2, fly: false, damage: 2, weight: 2,
     attack: { name: 'Slam', desc: '2 damage and a push.' },
-    parts: { hp: 4, move: 2, dmg: 2, push: 1 },
+    parts: { dmg: 2, push: 1 },
   },
   lobber: {
     name: 'Lobber', model: 'lobber', size: 0.85, hp: 2, move: 2, fly: false, damage: 1, weight: 2,
     attack: { name: 'Mortar', desc: '1 damage in a plus shape 3 tiles away.' },
-    parts: { hp: 2, move: 2, dmg: 1, reach: 3, extraTiles: 4 },
+    parts: { dmg: 1, reach: 3, extraTiles: 4 },
   },
   saucer: {
     name: 'Saucer', model: 'ufo', size: 0.8, hp: 3, move: 3, fly: true, damage: 1, weight: 1,
     attack: { name: 'Beam', desc: 'Pulls the first thing within 3 tiles in a line and deals 1.' },
-    parts: { hp: 3, move: 3, fly: 1, dmg: 1, reach: 3, push: 1 },
+    parts: { dmg: 1, reach: 3, push: 1 },
   },
   redSprout: {
     name: 'Red Sprout', model: 'sprout-red', size: 0.6, hp: 1, move: 3, fly: false, damage: 1, weight: 0,
     attack: { name: 'Flame', desc: '1 damage to the next 2 tiles in a line.' },
-    parts: { hp: 1, move: 3, dmg: 1, reach: 2, extraTiles: 1 },
+    parts: { dmg: 1, reach: 2, extraTiles: 1 },
   },
   yellowSprout: {
     name: 'Yellow Sprout', model: 'sprout-yellow', size: 0.6, hp: 1, move: 3, fly: false, damage: 1, weight: 0,
     attack: { name: 'Chain', desc: '1 damage to the next tile and on through everything lined up behind it.' },
-    parts: { hp: 1, move: 3, dmg: 1, extraTiles: 2 },
+    parts: { dmg: 1, extraTiles: 2 },
   },
   blueSprout: {
     name: 'Blue Sprout', model: 'sprout-blue', size: 0.6, hp: 1, move: 3, fly: false, damage: 1, weight: 0,
     attack: { name: 'Jet', desc: '1 damage and a push to the first thing within 3 tiles in a line.' },
-    parts: { hp: 1, move: 3, dmg: 1, reach: 3, push: 1 },
+    parts: { dmg: 1, reach: 3, push: 1 },
   },
 };
 

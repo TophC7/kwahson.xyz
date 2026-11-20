@@ -38,17 +38,17 @@ export type GameEvent =
   | { t: 'phase'; phase: 'enemy' | 'player'; turn: number }
   | { t: 'end'; result: 'won' | 'lost' };
 
-type Hero = Entity & { kind: HeroKind };
+export type Hero = Entity & { kind: HeroKind };
 type Enemy = Entity & { kind: EnemyKind };
 type MoveStyle = Extract<GameEvent, { t: 'move' }>['style'];
 interface Resolution { state: GameState; events: GameEvent[] }
-const isHero = (e: Entity): e is Hero => Object.hasOwn(HEROES, e.kind);
-const isEnemy = (e: Entity): e is Enemy => Object.hasOwn(ENEMIES, e.kind);
+export const isHero = (e: Entity): e is Hero => Object.hasOwn(HEROES, e.kind);
+export const isEnemy = (e: Entity): e is Enemy => Object.hasOwn(ENEMIES, e.kind);
 const DIRS: readonly Dir[] = [0, 1, 2, 3];
 const DX = [0, 1, 0, -1], DY = [-1, 0, 1, 0];
 const SIZE = COLS * ROWS;
-const index = (p: Tile) => p.y * COLS + p.x;
-const tile = (i: number): Tile => ({ x: i % COLS, y: Math.floor(i / COLS) });
+export const tileIndex = (p: Tile) => p.y * COLS + p.x;
+export const tileOf = (i: number): Tile => ({ x: i % COLS, y: Math.floor(i / COLS) });
 const same = (a: Tile, b: Tile) => a.x === b.x && a.y === b.y;
 const inside = (p: Tile) => p.x >= 0 && p.x < COLS && p.y >= 0 && p.y < ROWS;
 const offset = (p: Tile, d: Dir, n = 1): Tile => ({ x: p.x + DX[d] * n, y: p.y + DY[d] * n });
@@ -67,7 +67,7 @@ export function createEntity(state: GameState, kind: EntityKind, x: number, y: n
   state.entities.push(e);
   return e;
 }
-export function tileAt(state: GameState, x: number, y: number): Entity | undefined {
+export function entityAt(state: GameState, x: number, y: number): Entity | undefined {
   return state.entities.find(e => e.x === x && e.y === y);
 }
 export function teamOf(e: Entity): 'herd' | 'sky' | 'neutral' {
@@ -81,7 +81,7 @@ export function maxHp(e: Entity): number | null {
 }
 const pushable = (e: Entity) => isHero(e) || isEnemy(e) || PROPS[e.kind as PropKind].pushable;
 const hasEgg = (s: GameState, p: Tile) => s.traps.some(t => same(t, p));
-const plantable = (s: GameState, p: Tile) => inside(p) && !tileAt(s, p.x, p.y) && !hasEgg(s, p);
+const plantable = (s: GameState, p: Tile) => inside(p) && !entityAt(s, p.x, p.y) && !hasEgg(s, p);
 function activeHero(s: GameState, id: number): Hero | undefined {
   const e = s.entities.find(e => e.id === id);
   return s.phase === 'player' && e && isHero(e) ? e : undefined;
@@ -91,21 +91,21 @@ function activeHero(s: GameState, id: number): Hero | undefined {
 type Board = (Entity | undefined)[];
 function boardWithout(s: GameState, actor: Entity): Board {
   const board = new Array<Entity | undefined>(SIZE);
-  for (const e of s.entities) if (e !== actor) board[index(e)] = e;
+  for (const e of s.entities) if (e !== actor) board[tileIndex(e)] = e;
   return board;
 }
 interface Reach { ends: number[]; steps: Int8Array; parent: Int8Array }
 function reachable(e: Hero | Enemy, board: Board): Reach {
   const { move, fly } = isHero(e) ? HEROES[e.kind] : ENEMIES[e.kind];
-  const start = index(e), queue = [start], ends = [start];
+  const start = tileIndex(e), queue = [start], ends = [start];
   const parent = new Int8Array(SIZE).fill(-1), steps = new Int8Array(SIZE).fill(-1);
   steps[start] = 0;
   for (let head = 0; head < queue.length; head++) {
     const i = queue[head];
     if (steps[i] === move) continue;
-    const p = tile(i);
+    const p = tileOf(i);
     for (const d of DIRS) {
-      const next = offset(p, d), j = index(next);
+      const next = offset(p, d), j = tileIndex(next);
       if (!inside(next) || steps[j] >= 0 || (!fly && board[j])) continue;
       parent[j] = i;
       steps[j] = steps[i] + 1;
@@ -117,27 +117,27 @@ function reachable(e: Hero | Enemy, board: Board): Reach {
 }
 function pathTo(reach: Reach, dest: number): Tile[] {
   const path: Tile[] = [];
-  for (let i = dest; reach.parent[i] !== -1; i = reach.parent[i]) path.push(tile(i));
+  for (let i = dest; reach.parent[i] !== -1; i = reach.parent[i]) path.push(tileOf(i));
   return path.reverse();
 }
 export function moveTargets(state: GameState, id: number): (Tile & { steps: number })[] {
   const e = activeHero(state, id);
   if (!e || e.moved) return [];
   const reach = reachable(e, boardWithout(state, e));
-  return reach.ends.slice(1).map(i => ({ ...tile(i), steps: reach.steps[i] }));
+  return reach.ends.slice(1).map(i => ({ ...tileOf(i), steps: reach.steps[i] }));
 }
 
 function targets(test: (p: Tile) => boolean): Tile[] {
   const result: Tile[] = [];
   for (let i = 0; i < SIZE; i++) {
-    const p = tile(i);
+    const p = tileOf(i);
     if (test(p)) result.push(p);
   }
   return result;
 }
 const foe = (e: Entity | undefined): e is Entity => !!e && teamOf(e) !== 'herd' && maxHp(e) !== null;
-const friendlyWound = (e: Entity | undefined) => !!e && teamOf(e) === 'herd' && e.hp < (maxHp(e) ?? 0);
-const mendable = (e: Entity | undefined) => !!e && teamOf(e) === 'herd' && maxHp(e) !== null && e.hp < maxHp(e)! + OVERHEAL;
+// `over` raises the cap past max HP (Mend's bonus).
+const healable = (e: Entity | undefined, over = 0) => !!e && teamOf(e) === 'herd' && maxHp(e) !== null && e.hp < maxHp(e)! + over;
 export function skillTargets(state: GameState, id: number): Tile[] {
   const e = activeHero(state, id);
   if (!e || e.acted) return [];
@@ -145,7 +145,7 @@ export function skillTargets(state: GameState, id: number): Tile[] {
     const result: Tile[] = [];
     for (const d of DIRS) {
       for (let p = offset(e, d); inside(p); p = offset(p, d)) {
-        const t = tileAt(state, p.x, p.y);
+        const t = entityAt(state, p.x, p.y);
         if (!t) continue;
         if (foe(t)) result.push(p);
         break;
@@ -154,15 +154,15 @@ export function skillTargets(state: GameState, id: number): Tile[] {
     return result;
   }
   return targets(p => {
-    const n = distance(e, p), t = tileAt(state, p.x, p.y);
+    const n = distance(e, p), t = entityAt(state, p.x, p.y);
     switch (e.kind) {
       case 'cow': return n === 1 && !!t && pushable(t);
-      case 'healer': return n <= 3 && mendable(t);
+      case 'healer': return n <= 3 && healable(t, OVERHEAL);
       case 'bee': return n > 0 && n <= 3 && aligned(e, p) && foe(t);
       case 'cat': {
         if (n !== 1 || !foe(t)) return false;
         const far = offset(p, facing(e, p));
-        return inside(far) && !tileAt(state, far.x, far.y);
+        return inside(far) && !entityAt(state, far.x, far.y);
       }
       case 'hen': return n > 0 && n <= 2 && plantable(state, p);
       case 'sheep': return n <= 2 && !!t && teamOf(t) === 'herd' && !t.shield;
@@ -174,9 +174,9 @@ export function itemTargets(state: GameState, id: number, item: ItemKind): Tile[
   const e = activeHero(state, id), stock = state.items.find(slot => slot.kind === item);
   if (!e || e.acted || !stock || stock.charges <= 0 || state.power < ITEMS[item].power) return [];
   return targets(p => {
-    const n = distance(e, p), t = tileAt(state, p.x, p.y);
+    const n = distance(e, p), t = entityAt(state, p.x, p.y);
     switch (item) {
-      case 'honey': return n <= 1 && friendlyWound(t);
+      case 'honey': return n <= 1 && healable(t);
       case 'apple': return n <= 1 && !!t && isHero(t) && t.moved;
       case 'bale': case 'decoy': return n > 0 && n <= 2 && plantable(state, p);
       case 'can': return n > 0 && n <= 2 && aligned(e, p) && plantable(state, p);
@@ -200,8 +200,8 @@ function damage(r: Resolution, e: Entity, n: number) {
     r.events.push({ t: 'ko', id: e.id });
   }
 }
-function heal(r: Resolution, e: Entity, limit = maxHp(e)!) {
-  const amount = Math.min(2, limit - e.hp);
+function heal(r: Resolution, e: Entity, over = 0) {
+  const amount = Math.min(2, maxHp(e)! + over - e.hp);
   e.hp += amount;
   r.events.push({ t: 'heal', id: e.id, amount, hp: e.hp });
 }
@@ -231,7 +231,7 @@ function travel(r: Resolution, e: Entity, path: Tile[], style: MoveStyle): boole
 }
 function push(r: Resolution, e: Entity, d: Dir) {
   if (!pushable(e)) return;
-  const dest = offset(e, d), blocker = tileAt(r.state, dest.x, dest.y);
+  const dest = offset(e, d), blocker = entityAt(r.state, dest.x, dest.y);
   if (inside(dest) && !blocker) {
     travel(r, e, [dest], 'slide');
   } else {
@@ -245,12 +245,12 @@ function spawn(r: Resolution, kind: EntityKind, p: Tile, how: 'place' | 'land') 
   r.events.push({ t: 'spawn', entity: { ...e }, how });
 }
 function useSkill(r: Resolution, e: Hero, p: Tile) {
-  const d = facing(e, p), t = tileAt(r.state, p.x, p.y)!;
+  const d = facing(e, p), t = entityAt(r.state, p.x, p.y)!;
   e.dir = d;
   r.events.push({ t: 'skill', id: e.id, name: HEROES[e.kind].skill.name, dir: d, x: p.x, y: p.y });
   switch (e.kind) {
     case 'cow': push(r, t, d); break;
-    case 'healer': heal(r, t, maxHp(t)! + OVERHEAL); break;
+    case 'healer': heal(r, t, OVERHEAL); break;
     case 'bee': damage(r, t, 1); break;
     case 'goat': {
       const path: Tile[] = [];
@@ -272,7 +272,7 @@ function useSkill(r: Resolution, e: Hero, p: Tile) {
   }
 }
 function useItem(r: Resolution, e: Hero, item: ItemKind, p: Tile) {
-  const s = r.state, d = facing(e, p), t = tileAt(s, p.x, p.y)!;
+  const s = r.state, d = facing(e, p), t = entityAt(s, p.x, p.y)!;
   e.dir = d;
   s.power -= ITEMS[item].power;
   s.items.find(slot => slot.kind === item)!.charges--;
@@ -292,7 +292,7 @@ function useItem(r: Resolution, e: Hero, item: ItemKind, p: Tile) {
     case 'pumpkin': damage(r, t, 2); break;
     case 'tractor': {
       for (let n = Math.max(COLS, ROWS) - 1; n >= 1; n--) {
-        const q = offset(e, d, n), hit = tileAt(s, q.x, q.y);
+        const q = offset(e, d, n), hit = entityAt(s, q.x, q.y);
         if (!foe(hit)) continue;
         damage(r, hit, 2);
         if (hit.hp > 0) push(r, hit, d);
@@ -313,7 +313,7 @@ function attackTiles(kind: EnemyKind, p: Tile, d: Dir, board: Board): Tile[] {
     const line: Tile[] = [];
     for (let q = offset(p, d); inside(q); q = offset(q, d)) {
       line.push(q);
-      if (!board[index(q)]) break;
+      if (!board[tileIndex(q)]) break;
     }
     return line;
   }
@@ -324,7 +324,7 @@ function attackTiles(kind: EnemyKind, p: Tile, d: Dir, board: Board): Tile[] {
       const q = offset(p, d, n);
       if (!inside(q)) break;
       line.push(q);
-      if (board[index(q)]) break;
+      if (board[tileIndex(q)]) break;
     }
     return line;
   }
@@ -335,7 +335,7 @@ function attackTiles(kind: EnemyKind, p: Tile, d: Dir, board: Board): Tile[] {
 // Members take the trio's tile in SPROUT_KINDS order, then free neighbours west, east, south, north; any without room are lost.
 const SPLIT_DIRS: readonly Dir[] = [3, 1, 2, 0];
 function splitPlan(s: GameState, group: Enemy): Enemy[] {
-  const tiles: Tile[] = [group, ...SPLIT_DIRS.map(d => offset(group, d)).filter(q => inside(q) && !tileAt(s, q.x, q.y))];
+  const tiles: Tile[] = [group, ...SPLIT_DIRS.map(d => offset(group, d)).filter(q => inside(q) && !entityAt(s, q.x, q.y))];
   return SPROUT_KINDS.slice(0, group.hp).flatMap((kind, i) => tiles[i] ? [{ ...group, kind, hp: 1, x: tiles[i].x, y: tiles[i].y }] : []);
 }
 function split(r: Resolution, group: Enemy): Enemy[] {
@@ -352,7 +352,7 @@ function addReach(state: GameState, e: Enemy, move: Set<number>, attack: Set<num
   const board = boardWithout(state, e);
   for (const i of reachable(e, board).ends) {
     move.add(i);
-    for (const d of DIRS) for (const q of attackTiles(e.kind, tile(i), d, board)) attack.add(index(q));
+    for (const d of DIRS) for (const q of attackTiles(e.kind, tileOf(i), d, board)) attack.add(tileIndex(q));
   }
 }
 export function enemyReach(state: GameState, id: number): { move: Tile[]; attack: Tile[] } {
@@ -367,14 +367,14 @@ export function enemyReach(state: GameState, id: number): { move: Tile[]; attack
   } else {
     addReach(state, e, move, attack);
   }
-  return { move: Array.from(move, tile), attack: Array.from(attack, tile) };
+  return { move: Array.from(move, tileOf), attack: Array.from(attack, tileOf) };
 }
 
 export function danger(state: GameState): number[] {
   const damage = new Array<number>(SIZE).fill(0);
   for (const e of state.entities) {
     if (!isEnemy(e)) continue;
-    for (const q of enemyReach(state, e.id).attack) damage[index(q)] += ENEMIES[e.kind].damage;
+    for (const q of enemyReach(state, e.id).attack) damage[tileIndex(q)] += ENEMIES[e.kind].damage;
   }
   return damage;
 }
@@ -386,7 +386,7 @@ function attack(r: Resolution, e: Enemy, d: Dir, board: Board) {
   e.dir = d;
   r.events.push({ t: 'skill', id: e.id, name, dir: d, x: target.x, y: target.y });
   for (const q of tiles) {
-    const hit = board[index(q)];
+    const hit = board[tileIndex(q)];
     if (!hit) continue;
     if (e.kind === 'saucer' && pushable(hit) && distance(e, hit) > 1) {
       travel(r, hit, [offset(e, d)], 'slide');
@@ -413,7 +413,7 @@ function bestAttack(e: Enemy, p: Tile, board: Board): { score: number; dir: Dir 
     if (!tiles.length) continue;
     let sum = 0;
     for (const q of tiles) {
-      const hit = board[index(q)];
+      const hit = board[tileIndex(q)];
       if (hit) sum += value(hit, ENEMIES[e.kind].damage);
     }
     if (sum > score) { score = sum; dir = d; }
@@ -424,16 +424,16 @@ function bestAttack(e: Enemy, p: Tile, board: Board): { score: number; dir: Dir 
 function goalDistances(s: GameState, board: Board): Float64Array {
   const dist = new Float64Array(SIZE).fill(Infinity), done = new Uint8Array(SIZE);
   for (const e of s.entities) {
-    if (e.kind === 'crop' || e.kind === 'scarecrow' || (s.objective === 'hold' ? e.kind === 'barn' : isHero(e))) dist[index(e)] = 0;
+    if (e.kind === 'crop' || e.kind === 'scarecrow' || (s.objective === 'hold' ? e.kind === 'barn' : isHero(e))) dist[tileIndex(e)] = 0;
   }
   for (;;) {
     let i = -1, min = Infinity;
     for (let j = 0; j < SIZE; j++) if (!done[j] && dist[j] < min) { i = j; min = dist[j]; }
     if (i < 0) return dist;
     done[i] = 1;
-    const p = tile(i);
+    const p = tileOf(i);
     for (const d of DIRS) {
-      const q = offset(p, d), j = index(q);
+      const q = offset(p, d), j = tileIndex(q);
       if (!inside(q) || done[j]) continue;
       const occupant = board[j];
       if (occupant && maxHp(occupant) === null) continue;
@@ -445,8 +445,8 @@ function goalDistances(s: GameState, board: Board): Float64Array {
 function breachDirection(e: Enemy, board: Board, dist: Float64Array): Dir | null {
   let best = Infinity, open = false, blocked: Dir | null = null;
   for (const d of DIRS) {
-    const q = offset(e, d), j = index(q);
-    if (!inside(q) || dist[j] >= dist[index(e)] || dist[j] > best) continue;
+    const q = offset(e, d), j = tileIndex(q);
+    if (!inside(q) || dist[j] >= dist[tileIndex(e)] || dist[j] > best) continue;
     const occupant = board[j];
     const obstacle = !!occupant && !isHero(occupant) && !isEnemy(occupant) && maxHp(occupant) !== null
       && occupant.kind !== 'barn' && occupant.kind !== 'crop' && occupant.kind !== 'scarecrow';
@@ -464,7 +464,7 @@ function actEnemy(r: Resolution, e: Enemy) {
   reach.ends.sort((a, b) => reach.steps[a] - reach.steps[b] || a - b);
   let dest = reach.ends[0], best = bestAttack(e, e, board);
   for (let j = 1; j < reach.ends.length; j++) {
-    const i = reach.ends[j], option = bestAttack(e, tile(i), board);
+    const i = reach.ends[j], option = bestAttack(e, tileOf(i), board);
     if (option.score > best.score) { dest = i; best = option; }
   }
   let dist: Float64Array | null = null;
@@ -484,8 +484,8 @@ function landing(s: GameState, x: number): Tile | undefined {
   for (let y = 0; y <= 1; y++) {
     for (let delta = 0; delta < COLS; delta++) {
       const left = x - delta, right = x + delta;
-      if (left >= 0 && !tileAt(s, left, y)) return { x: left, y };
-      if (delta && right < COLS && !tileAt(s, right, y)) return { x: right, y };
+      if (left >= 0 && !entityAt(s, left, y)) return { x: left, y };
+      if (delta && right < COLS && !entityAt(s, right, y)) return { x: right, y };
     }
   }
 }
@@ -546,7 +546,7 @@ export function apply(state: GameState, action: Action): Resolution {
   if (action.type === 'move') {
     if (e.moved) throw new Error('illegal action');
     const reach = reachable(e, boardWithout(s, e));
-    const dest = reach.ends.find(i => i !== index(e) && same(tile(i), action));
+    const dest = reach.ends.find(i => i !== tileIndex(e) && same(tileOf(i), action));
     if (dest === undefined) throw new Error('illegal action');
     travel(r, e, pathTo(reach, dest), HEROES[e.kind].fly ? 'fly' : 'walk');
     e.moved = true;

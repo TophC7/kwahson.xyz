@@ -29,7 +29,7 @@
     seed: 0, difficulty: 'medium', objective: 'rout', turn: 1, power: POWER_PER_TURN,
     phase: 'player', busy: false, fastForward: false, canUndo: false, muted: false, zoomed: false,
     status: '', heroes: [], items: [], selected: null, mode: 'idle', pendingItem: null, preview: null,
-    idleHeroes: 0, incoming: 0, enemiesLeft: 0, crops: CROP_COUNT, cropsTotal: CROP_COUNT, danger: false, stars: 0,
+    idleHeroes: 0, incoming: 0, enemiesLeft: 0, crops: CROP_COUNT, danger: false, stars: 0,
   });
   let portraits = $state.raw<Record<string, string>>({});
   let showGuide = $state(false);
@@ -126,6 +126,7 @@
           const top = (topEl?.offsetHeight ?? 0) + 8, panel = panelEl ?? { offsetWidth: 0, offsetHeight: 0 };
           return docked.matches ? { top, bottom: (hintEl?.offsetHeight ?? 0) + 24, left: 0, right: panel.offsetWidth + 8 } : { top, bottom: panel.offsetHeight + 8, left: 0, right: 0 };
         },
+        onEndTurnKey: endTurn,
       }));
       controller = instance;
       portraits = instance.portraits;
@@ -133,18 +134,7 @@
       observer.observe(panelEl);
       observer.observe(topEl);
       observer.observe(hintEl);
-      // Route the end-turn shortcut through the same idle-hero confirmation as the button.
-      const onKey = (event: KeyboardEvent) => {
-        if (event.key.toLowerCase() !== 'e' || event.ctrlKey || event.metaKey || event.altKey ||
-          showGuide || showShare || showGallery || result || (event.target instanceof HTMLElement &&
-          (event.target.isContentEditable || event.target.closest('input, textarea, select')))) return;
-        event.preventDefault();
-        event.stopPropagation();
-        if (!event.repeat) endTurn();
-      };
-      document.addEventListener('keydown', onKey);
       return () => {
-        document.removeEventListener('keydown', onKey);
         observer.disconnect();
         clearTimeout(armTimer);
         clearTimeout(copyTimer);
@@ -203,7 +193,7 @@
         <div class="flex divide-x divide-ink/10 text-base leading-tight font-semibold sm:text-xl">
           <div class="pr-2"><small class="stat-label">Turn</small>{hud.turn}{hud.objective === 'hold' ? `/${HOLD_TURNS}` : ''}</div>
           <div class="px-2"><small class="stat-label">Visitors</small>{hud.enemiesLeft}{#if hud.incoming}<span class="text-xs text-ochre"> +{hud.incoming}</span>{/if}</div>
-          <div class="pl-2 {hud.crops < hud.cropsTotal ? 'text-ochre' : ''}"><small class="stat-label">Crops</small>{hud.crops}/{hud.cropsTotal}</div>
+          <div class="pl-2 {hud.crops < CROP_COUNT ? 'text-ochre' : ''}"><small class="stat-label">Crops</small>{hud.crops}/{CROP_COUNT}</div>
         </div>
         <p class="mt-0.5 text-[10px] text-ink-muted">{hud.objective === 'hold' ? 'Hold the barn' : 'Clear the pasture'}</p>
       </section>
@@ -233,8 +223,8 @@
         {#each hud.heroes as hero (hero.id)}
           <button class="{btn} min-w-0 flex-1 gap-1 px-1 {hero.alive && !hero.canMove && !hero.canAct ? 'opacity-45' : ''}" aria-pressed={hud.selected?.id === hero.id} disabled={!hero.alive} onclick={() => controller?.select(hero.id)}>
             {@render portrait(HEROES[hero.kind].model, 28)}
-            <span class="flex min-w-0 flex-col gap-0.5 text-left"><span class:line-through={!hero.alive}>{hero.name}</span><span class="flex items-center gap-0.5">
-              {@render pips(hero.hp, hero.maxHp, 'HP')}
+            <span class="flex min-w-0 flex-col gap-0.5 text-left"><span class:line-through={!hero.alive}>{HEROES[hero.kind].name}</span><span class="flex items-center gap-0.5">
+              {@render pips(hero.hp, HEROES[hero.kind].hp, 'HP')}
               {#if hero.shield}<span class="h-1.5 w-1.5 rounded-full bg-sky-100" role="img" aria-label="Shielded"></span>{/if}
             </span></span>
           </button>
@@ -270,8 +260,8 @@
       <div class="grid gap-1.5" style:grid-template-columns={`repeat(${hud.items.length === 4 ? 2 : Math.max(1, hud.items.length)}, minmax(0, 1fr))`}>
         {#each hud.items as item (item.kind)}
           <button class={action} disabled={!item.usable} aria-pressed={hud.pendingItem === item.kind} onclick={() => controller?.chooseItem(item.kind)}>
-            <span class="flex items-center gap-1">{@render portrait(ITEMS[item.kind].model, 20)}<strong class="truncate">{item.name}</strong><span class="ml-auto shrink-0 text-ink-muted">×{item.charges}</span></span>
-            {@render pips(item.power, item.power, 'power cost', 'bg-ochre')}
+            <span class="flex items-center gap-1">{@render portrait(ITEMS[item.kind].model, 20)}<strong class="truncate">{ITEMS[item.kind].name}</strong><span class="ml-auto shrink-0 text-ink-muted">×{item.charges}</span></span>
+            {@render pips(ITEMS[item.kind].power, ITEMS[item.kind].power, 'power cost', 'bg-ochre')}
             <span class="leading-snug text-ink-muted">{ITEMS[item.kind].desc}</span>
           </button>
         {/each}
@@ -338,7 +328,7 @@
         <div class="mt-2 text-xl tracking-widest text-ochre" role="img" aria-label={`${hud.stars} of 3 stars`}>{'★'.repeat(hud.stars)}{'☆'.repeat(3 - hud.stars)}</div>
       {/if}
       <p class="mt-3 font-mono text-xs text-ink-muted">Turn {hud.turn} · {hud.heroes.filter((h) => h.alive).length}/{hud.heroes.length} heroes standing</p>
-      <p class="mb-3 font-mono text-xs text-ink-muted">Crops saved {hud.crops}/{hud.cropsTotal}</p>
+      <p class="mb-3 font-mono text-xs text-ink-muted">Crops saved {hud.crops}/{CROP_COUNT}</p>
       <div class="grid gap-2">
         <button class={primary} onclick={() => controller?.retry()}>Retry this fight</button>
         <button class={btn} onclick={() => controller?.newFight(hud.difficulty)}>New fight</button>

@@ -1,13 +1,13 @@
 import { mulberry32, pick } from '../src/lib/rng';
 import {
   COLS, ROWS, CROP_COUNT, ENEMIES, ENEMY_KINDS, HEROES, HERO_KINDS, ITEMS, ITEM_KINDS,
-  MAX_EGGS, OVERHEAL, POWER_PER_TURN, cost,
+  MAX_EGGS, OVERHEAL, POWER_PER_TURN, cost, unitCost,
 } from '../src/projects/pasture-tactics/data';
 import {
-  apply, createEntity, danger, maxHp, moveTargets, skillTargets, stars, type Action, type GameState,
+  apply, createEntity, danger, isHero, maxHp, moveTargets, skillTargets, stars, tileIndex, type Action, type GameState,
 } from '../src/projects/pasture-tactics/rules';
 import { createGame } from '../src/projects/pasture-tactics/scenario';
-import { decodeSave, encodeSave } from '../src/projects/pasture-tactics/save';
+import { decodeSave, encodeSave, SAVE_VERSION } from '../src/projects/pasture-tactics/save';
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -24,14 +24,14 @@ function blank(): GameState {
 }
 
 // 1. Prices match the hero budget, item power and published enemy costs.
-for (const k of HERO_KINDS) assert(cost(HEROES[k].parts) === 10, `${k}: hero budget`);
+for (const k of HERO_KINDS) assert(unitCost(HEROES[k]) === 10, `${k}: hero budget`);
 for (const k of ITEM_KINDS) {
   assert(Math.abs(cost(ITEMS[k].parts) - 2 * ITEMS[k].power) <= 1, `${k}: item budget`);
 }
 const enemyCosts = {
   visitor: 6, sprouts: 13, scout: 7, brute: 9, lobber: 9, saucer: 11, redSprout: 6.5, yellowSprout: 6, blueSprout: 8,
 };
-for (const k of ENEMY_KINDS) assert(cost(ENEMIES[k].parts) === enemyCosts[k], `${k}: enemy budget`);
+for (const k of ENEMY_KINDS) assert(unitCost(ENEMIES[k]) === enemyCosts[k], `${k}: enemy budget`);
 
 function shove(withRock: boolean) {
   const s = blank();
@@ -146,7 +146,7 @@ function shove(withRock: boolean) {
   assert(threat.length === COLS * ROWS, 'Danger grid size');
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     const distance = Math.abs(visitor.x - x) + Math.abs(visitor.y - y);
-    assert(threat[y * COLS + x] === (distance <= 4 ? 1 : 0), `Visitor danger at (${x},${y})`);
+    assert(threat[tileIndex({ x, y })] === (distance <= 4 ? 1 : 0), `Visitor danger at (${x},${y})`);
   }
 }
 
@@ -168,18 +168,17 @@ function shove(withRock: boolean) {
 // 7. Saves resume a played turn exactly; malformed and outdated links have distinct fallbacks.
 {
   let s = createGame(4242, 'medium');
-  for (const { kind, id } of s.entities) {
-    if (!Object.hasOwn(HEROES, kind)) continue;
-    const first = moveTargets(s, id)[0];
-    if (first) s = apply(s, { type: 'move', id, x: first.x, y: first.y }).state;
+  for (const e of s.entities) {
+    if (!isHero(e)) continue;
+    const first = moveTargets(s, e.id)[0];
+    if (first) s = apply(s, { type: 'move', id: e.id, x: first.x, y: first.y }).state;
   }
   s = apply(s, { type: 'endTurn' }).state;
   const code = encodeSave(s);
   assert(JSON.stringify(decodeSave(code)) === JSON.stringify(s), 'Save round trip');
   assert(decodeSave('!!') === null, 'Malformed save should have no usable header');
   const bytes = Buffer.from(code, 'base64url');
-  assert(bytes[0] === 5, 'Save version');
-  bytes[0] = 4;
+  bytes[0] = SAVE_VERSION - 1;
   const old = decodeSave(bytes.toString('base64url'));
   assert(old && 'restart' in old && old.restart.seed === 4242 && old.restart.difficulty === 'medium', 'Version restart');
 }
@@ -201,7 +200,7 @@ function checkState(s: GameState, bonus: boolean) {
   const occupied = new Set<number>();
   for (const e of s.entities) {
     assert(e.x >= 0 && e.x < COLS && e.y >= 0 && e.y < ROWS, `${at}: off-board entity (${e.x},${e.y})`);
-    const tile = e.y * COLS + e.x;
+    const tile = tileIndex(e);
     assert(!occupied.has(tile), `${at}: shared tile (${e.x},${e.y})`);
     occupied.add(tile);
     const max = maxHp(e);
@@ -225,19 +224,19 @@ for (const difficulty of difficulties) {
       checkState(s, action.type !== 'endTurn' || s.phase !== 'player');
     }
     for (let n = 0; n < 30 && s.phase === 'player'; n++) {
-      for (const { kind, id } of s.entities) {
-        if (!Object.hasOwn(HEROES, kind)) continue;
+      for (const e of s.entities) {
+        if (!isHero(e)) continue;
         if (s.phase !== 'player') break;
-        const moves = moveTargets(s, id);
+        const moves = moveTargets(s, e.id);
         if (moves.length) {
           const { x, y } = pick(moves, rng);
-          act({ type: 'move', id, x, y });
+          act({ type: 'move', id: e.id, x, y });
         }
         if (s.phase !== 'player') break;
-        const targets = skillTargets(s, id);
+        const targets = skillTargets(s, e.id);
         if (targets.length) {
           const { x, y } = pick(targets, rng);
-          act({ type: 'skill', id, x, y });
+          act({ type: 'skill', id: e.id, x, y });
         }
       }
       if (s.phase === 'player') act({ type: 'endTurn' });

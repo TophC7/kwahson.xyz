@@ -1,14 +1,12 @@
 import * as THREE from 'three';
 import type { Bursts } from '../../lib/bursts';
-import { createStudioBuilder } from '../../lib/miniatures';
 import type { PartKind, PastureKit } from '../../lib/pastureKit';
 import type { SfxName, TacticsAudio } from './audio';
-import { COLS, ROWS, HEROES, ENEMIES, ITEMS, type EntityKind } from './data';
-import { buildTacticsModel } from './models';
-import type { Entity, GameEvent } from './rules';
+import { COLS, ROWS, ITEMS } from './data';
+import { isEnemy, isHero, type Entity, type GameEvent } from './rules';
 
 export interface EntityVisual {
-  kind: EntityKind;
+  entity: Entity;
   holder: THREE.Group;
   model: THREE.Group;
   baseScale: number;
@@ -30,7 +28,9 @@ export interface Stage {
   kit: PastureKit;
   bursts: Bursts;
   audio: TacticsAudio;
-  setStatus(text: string): void;
+  /** A fresh copy of a model whose widest side spans `footprint`, feet on its origin. */
+  model(id: string, footprint: number): THREE.Group;
+  onPhase(phase: 'enemy' | 'player'): void;
 }
 
 export interface Playback {
@@ -85,17 +85,8 @@ export function createPlayback(stage: Stage, reduceMotion: boolean): Playback {
   function part(kind: PartKind, color: number, size: [number, number, number], mat?: THREE.Material) {
     return stage.kit.part(effectGroup(), kind, color, size, undefined, mat);
   }
-  // A model whose widest side spans `footprint` world units, centred with its feet on the returned holder's origin.
   function miniature(id: string, footprint: number) {
-    const studio = createStudioBuilder(stage.kit);
-    cleanups.push(() => studio.dispose());
-    const model = buildTacticsModel(studio, id);
-    model.rotation.set(0, 0, 0);
-    const box = new THREE.Box3().setFromObject(model), size = box.getSize(new THREE.Vector3());
-    const scale = footprint / Math.max(size.x, size.z);
-    model.scale.setScalar(scale);
-    model.position.set(-(box.min.x + box.max.x) / 2 * scale, -box.min.y * scale, -(box.min.z + box.max.z) / 2 * scale);
-    const holder = new THREE.Group(); holder.add(model); effectGroup().add(holder);
+    const holder = new THREE.Group(); holder.add(stage.model(id, footprint)); effectGroup().add(holder);
     return holder;
   }
   function travel(object: THREE.Object3D, from: THREE.Vector3, to: THREE.Vector3, height: number): Frame {
@@ -320,7 +311,7 @@ export function createPlayback(stage: Stage, reduceMotion: boolean): Playback {
       case 'ko': {
         if (!v) return;
         const at = v.holder.position.clone(), yaw = v.holder.rotation.y;
-        const hero = Object.hasOwn(HEROES, v.kind), enemy = Object.hasOwn(ENEMIES, v.kind);
+        const hero = isHero(v.entity), enemy = isEnemy(v.entity);
         stage.audio.play(hero ? 'koHero' : enemy ? 'koEnemy' : 'crunch');
         v.pips.visible = false;
         if (hero) {
@@ -374,7 +365,7 @@ export function createPlayback(stage: Stage, reduceMotion: boolean): Playback {
         stage.audio.play('eggHit'); stage.bursts.spawn(stage.tileCenter(e.x, e.y), 0xffe38a, 8); return;
       case 'phase': {
         const enemy = e.phase === 'enemy';
-        stage.setStatus(enemy ? "Visitors' turn" : 'Your turn'); stage.audio.play(enemy ? 'enemyPhase' : 'playerPhase');
+        stage.onPhase(e.phase); stage.audio.play(enemy ? 'enemyPhase' : 'playerPhase');
         yield [0.35]; return;
       }
       case 'end': stage.audio.play(e.result); yield [0.4]; return;

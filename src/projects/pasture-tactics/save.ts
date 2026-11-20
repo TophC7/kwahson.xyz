@@ -1,9 +1,9 @@
 import { COLS, ROWS, ENTITY_KINDS, ITEMS, MAX_EGGS, OVERHEAL, POWER_PER_TURN, type Difficulty } from './data';
-import { maxHp, type Dir, type Entity, type GameState } from './rules';
+import { maxHp, tileIndex, tileOf, type Dir, type Entity, type GameState } from './rules';
 import { createGame } from './scenario';
 
 export const SAVE_VERSION = 5;
-export const STORAGE_KEY = 'pasture-tactics-save';
+const STORAGE_KEY = 'pasture-tactics-save';
 const DIFFICULTIES = ['easy', 'medium', 'hard'] as const;
 const PHASES = ['player', 'won', 'lost'] as const;
 const BOARD_SIZE = ROWS * COLS;
@@ -15,12 +15,12 @@ export function encodeSave(state: GameState): string {
     SAVE_VERSION, DIFFICULTIES.indexOf(state.difficulty), seed >>> 24, (seed >>> 16) & 255, (seed >>> 8) & 255, seed & 255,
     // ponytail: one byte caps the turn at 255; widen it in a new version for longer campaigns.
     Math.min(state.turn, 255), state.power, PHASES.indexOf(state.phase), state.nextId,
-    state.items.length, ...state.items.map((i) => i.charges), state.traps.length, ...state.traps.map(({ x, y }) => y * COLS + x),
+    state.items.length, ...state.items.map((i) => i.charges), state.traps.length, ...state.traps.map(tileIndex),
     state.entities.length,
   ];
   for (const e of state.entities) {
     const flags = +e.shield | (+e.moved << 1) | (+e.acted << 2) | (+e.placed << 3);
-    bytes.push(e.id, ENTITY_KINDS.indexOf(e.kind), e.y * COLS + e.x, e.hp, flags, e.dir);
+    bytes.push(e.id, ENTITY_KINDS.indexOf(e.kind), tileIndex(e), e.hp, flags, e.dir);
   }
   return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
@@ -60,7 +60,7 @@ export function decodeSave(code: string): GameState | { restart: { seed: number;
     const tile = byte();
     if (tile >= BOARD_SIZE || trapTiles.has(tile)) return restart;
     trapTiles.add(tile);
-    state.traps.push({ x: tile % COLS, y: Math.floor(tile / COLS) });
+    state.traps.push(tileOf(tile));
   }
   const entityCount = byte();
   if (entityCount > BOARD_SIZE || pos + entityCount * ENTITY_BYTES !== payload.length) return restart;
@@ -72,7 +72,7 @@ export function decodeSave(code: string): GameState | { restart: { seed: number;
     ids.add(id);
     occupied.add(tile);
     const e: Entity = {
-      id, kind, x: tile % COLS, y: Math.floor(tile / COLS), hp,
+      id, kind, ...tileOf(tile), hp,
       shield: !!(flags & 1), moved: !!(flags & 2), acted: !!(flags & 4), placed: !!(flags & 8),
       dir: dir as Dir,
     };
