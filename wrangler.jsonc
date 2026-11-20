@@ -1,0 +1,9 @@
+{
+  "name": "kwahson-xyz",
+  "compatibility_date": "2026-11-20",
+  "assets": {
+    "directory": "./dist",
+    // Client-side router: unknown paths like /moojong fall back to index.html.
+    "not_found_handling": "single-page-application"
+  }
+}
