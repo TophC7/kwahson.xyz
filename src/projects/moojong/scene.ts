@@ -1,10 +1,13 @@
 import * as THREE from 'three';
+import { createBoardCamera } from '../../lib/boardCamera';
+import { createBursts } from '../../lib/bursts';
+import { buildPastureTable } from '../../lib/pastureTable';
+import { randomSeed } from '../../lib/rng';
 import {
   createPastureKit,
   PASTURE_HEMI_GROUND,
   PASTURE_HEMI_SKY,
   PASTURE_SUN_COLOR,
-  type PartKind,
 } from '../../lib/pastureKit';
 import { createMoojongAudio } from './audio';
 import {
@@ -15,7 +18,6 @@ import {
   getActiveTiles,
   getBlockReason,
   isSlotFree,
-  randomSeed,
   reshuffleRemaining,
   type BoardTile,
   type Difficulty,
@@ -97,14 +99,6 @@ interface TileVisual {
 interface UndoRecord {
   idA: number;
   idB: number;
-}
-
-interface BurstParticle {
-  mesh: THREE.Mesh;
-  velocity: THREE.Vector3;
-  spin: THREE.Vector3;
-  life: number;
-  maxLife: number;
 }
 
 function createRoundedRectShape(w: number, h: number, r: number): THREE.Shape {
@@ -219,7 +213,6 @@ export function mountMoojong({
     cleanups.push(() => atlas.dispose());
 
     const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera();
 
     // Warm Pasture Patrol studio lighting with soft upper-left sun casting
     // depth-revealing shadows down and to the right of every tile stack.
@@ -298,6 +291,7 @@ export function mountMoojong({
     scene.add(tilesGroup);
     const effectsGroup = new THREE.Group();
     scene.add(effectsGroup);
+    const bursts = createBursts(kit, effectsGroup);
 
     // State
     let currentBoard: GeneratedBoard | null = null;
@@ -319,17 +313,8 @@ export function mountMoojong({
     let statusUntil = 0;
     let clockTime = 0;
 
-    const particles: BurstParticle[] = [];
-
-    // Camera framing & pan/zoom state
     let boardBounds = { minX: -6, maxX: 6, minZ: -5, maxZ: 5, maxY: 2 };
     let topLayer = 0;
-    let fitHalfW = 8;
-    let fitHalfH = 6;
-    let zoom = 1;
-    let targetZoom = 1;
-    const pan = new THREE.Vector2(0, 0);
-    const targetPan = new THREE.Vector2(0, 0);
     let viewCenterY = 0.6;
 
     function setStatus(text: string, duration = 2.6) {
@@ -344,110 +329,6 @@ export function mountMoojong({
         0.08 + tile.gz * LAYER_Y,
         tile.gy * STEP_Z,
       );
-    }
-
-    function buildPastureTable() {
-      tableGroup.clear();
-
-      const spanX = Math.max(9.5, boardBounds.maxX - boardBounds.minX + 2.2);
-      const spanZ = Math.max(7.5, boardBounds.maxZ - boardBounds.minZ + 2.0);
-      const cx = (boardBounds.minX + boardBounds.maxX) / 2;
-      const cz = (boardBounds.minZ + boardBounds.maxZ) / 2;
-
-      const addPart = (
-        kind: PartKind,
-        color: number,
-        scale: [number, number, number],
-        pos: [number, number, number],
-        receiveShadow = false,
-      ) => {
-        const m = kit.part(tableGroup, kind, color, scale, pos);
-        m.receiveShadow = receiveShadow;
-        return m;
-      };
-
-      // Earthy diorama slab + dark grass rim + soft checkered pasture tabletop
-      addPart('box', 0x9b684a, [spanX + 0.5, 0.72, spanZ + 0.5], [cx, -0.5, cz]);
-      addPart('box', 0x6f9650, [spanX + 0.64, 0.24, spanZ + 0.64], [cx, -0.06, cz], true);
-      addPart('box', 0x8dbd62, [spanX + 0.24, 0.08, spanZ + 0.24], [cx, 0.04, cz], true);
-
-      // Subtle pasture checkerboard patches
-      const patchSize = 1.65;
-      const cols = Math.floor(spanX / patchSize);
-      const rows = Math.floor(spanZ / patchSize);
-      const startX = cx - ((cols - 1) * patchSize) / 2;
-      const startZ = cz - ((rows - 1) * patchSize) / 2;
-      for (let i = 0; i < cols; i++) {
-        for (let j = 0; j < rows; j++) {
-          if ((i + j) % 2 === 0) {
-            addPart(
-              'box',
-              0x85b45c,
-              [patchSize - 0.04, 0.012, patchSize - 0.04],
-              [startX + i * patchSize, 0.082, startZ + j * patchSize],
-              true,
-            );
-          }
-        }
-      }
-
-      // Perimeter wooden pasture fence (matches Pasture Patrol diorama!)
-      const hx = spanX / 2 + 0.16;
-      const hz = spanZ / 2 + 0.16;
-      const postStep = 2.0;
-      const xPosts = Math.max(4, Math.round(spanX / postStep));
-      const zPosts = Math.max(4, Math.round(spanZ / postStep));
-
-      for (let i = 0; i <= xPosts; i++) {
-        const px = cx - hx + (i / xPosts) * (hx * 2);
-        for (const pz of [cz - hz, cz + hz]) {
-          addPart('box', 0xf3e6bd, [0.11, 0.44, 0.11], [px, 0.24, pz]);
-          addPart('sphere', 0xfff1cf, [0.09, 0.065, 0.09], [px, 0.48, pz]);
-        }
-      }
-      for (let j = 1; j < zPosts; j++) {
-        const pz = cz - hz + (j / zPosts) * (hz * 2);
-        for (const px of [cx - hx, cx + hx]) {
-          addPart('box', 0xf3e6bd, [0.11, 0.44, 0.11], [px, 0.24, pz]);
-          addPart('sphere', 0xfff1cf, [0.09, 0.065, 0.09], [px, 0.48, pz]);
-        }
-      }
-
-      // Fence rails
-      for (const pz of [cz - hz, cz + hz]) {
-        addPart('box', 0xe0cf9e, [hx * 2, 0.07, 0.07], [cx, 0.29, pz]);
-      }
-      for (const px of [cx - hx, cx + hx]) {
-        addPart('box', 0xe0cf9e, [0.07, 0.07, hz * 2], [px, 0.29, cz]);
-      }
-
-      // Quiet little grass tufts & wildflowers tucked along the fence perimeter
-      for (let i = 0; i < 28; i++) {
-        const side = i % 4;
-        const t = ((i * 37) % 100) / 100 - 0.5;
-        let x = cx;
-        let z = cz;
-        if (side === 0) {
-          x = cx + t * (spanX - 0.8);
-          z = cz - hz + 0.34;
-        } else if (side === 1) {
-          x = cx + t * (spanX - 0.8);
-          z = cz + hz - 0.34;
-        } else if (side === 2) {
-          x = cx - hx + 0.34;
-          z = cz + t * (spanZ - 0.8);
-        } else {
-          x = cx + hx - 0.34;
-          z = cz + t * (spanZ - 0.8);
-        }
-
-        if (i % 3 === 0) {
-          addPart('sphere', i % 2 ? 0xffe4a0 : 0xf7f4d9, [0.06, 0.045, 0.06], [x, 0.13, z]);
-        } else {
-          const tuft = addPart('cone', 0x6f9b4d, [0.055, 0.16, 0.055], [x, 0.15, z]);
-          tuft.rotation.z = 0.2;
-        }
-      }
     }
 
     function clearTileMeshes() {
@@ -555,116 +436,6 @@ export function mountMoojong({
       viewCenterY = maxY * 0.38;
     }
 
-    function updateCameraFrustum() {
-      const width = Math.max(1, viewport.clientWidth);
-      const height = Math.max(1, viewport.clientHeight);
-      renderer.setSize(width, height, false);
-      const aspect = width / height;
-
-      const cx = (boardBounds.minX + boardBounds.maxX) / 2;
-      const cz = (boardBounds.minZ + boardBounds.maxZ) / 2;
-
-      // Temporarily position camera at board center to measure exact projected bounds
-      const focus = new THREE.Vector3(cx, viewCenterY, cz);
-      camera.position.copy(focus).add(CAM_OFFSET);
-      camera.lookAt(focus);
-      camera.updateMatrixWorld(true);
-
-      const invCam = camera.matrixWorldInverse;
-      const padX = 1.35;
-      const padZ = 1.25;
-      const corners = [
-        new THREE.Vector3(boardBounds.minX - padX, -0.5, boardBounds.minZ - padZ),
-        new THREE.Vector3(boardBounds.maxX + padX, -0.5, boardBounds.minZ - padZ),
-        new THREE.Vector3(boardBounds.minX - padX, -0.5, boardBounds.maxZ + padZ),
-        new THREE.Vector3(boardBounds.maxX + padX, -0.5, boardBounds.maxZ + padZ),
-        new THREE.Vector3(boardBounds.minX - padX, boardBounds.maxY + 0.3, boardBounds.minZ - padZ),
-        new THREE.Vector3(boardBounds.maxX + padX, boardBounds.maxY + 0.3, boardBounds.minZ - padZ),
-        new THREE.Vector3(boardBounds.minX - padX, boardBounds.maxY + 0.3, boardBounds.maxZ + padZ),
-        new THREE.Vector3(boardBounds.maxX + padX, boardBounds.maxY + 0.3, boardBounds.maxZ + padZ),
-      ];
-
-      let minVX = Infinity;
-      let maxVX = -Infinity;
-      let minVY = Infinity;
-      let maxVY = -Infinity;
-      for (const c of corners) {
-        c.applyMatrix4(invCam);
-        minVX = Math.min(minVX, c.x);
-        maxVX = Math.max(maxVX, c.x);
-        minVY = Math.min(minVY, c.y);
-        maxVY = Math.max(maxVY, c.y);
-      }
-
-      // Reserve safe screen headroom for top HUD and bottom thumb toolbar
-      const isCompact = width < 640;
-      const verticalUsable = isCompact ? 0.74 : 0.78;
-      const horizontalUsable = isCompact ? 0.94 : 0.92;
-
-      const reqW = (maxVX - minVX) / horizontalUsable;
-      const reqH = (maxVY - minVY) / verticalUsable;
-
-      if (reqW / reqH > aspect) {
-        fitHalfW = reqW / 2;
-        fitHalfH = fitHalfW / aspect;
-      } else {
-        fitHalfH = reqH / 2;
-        fitHalfW = fitHalfH * aspect;
-      }
-
-      applyCameraTransform();
-    }
-
-    function clampPan(p: THREE.Vector2, z: number) {
-      const maxPanX = Math.max(0, fitHalfW * (1 - 1 / z) + 0.5);
-      const maxPanZ = Math.max(0, fitHalfH * (1 - 1 / z) + 0.5);
-      p.x = THREE.MathUtils.clamp(p.x, -maxPanX, maxPanX);
-      p.y = THREE.MathUtils.clamp(p.y, -maxPanZ, maxPanZ);
-    }
-
-    function setTargetZoom(next: number) {
-      targetZoom = THREE.MathUtils.clamp(next, 1, MAX_ZOOM);
-      clampPan(targetPan, targetZoom);
-      onState({ zoomed: targetZoom > 1.06 });
-    }
-
-    function applyCameraTransform() {
-      const cx = (boardBounds.minX + boardBounds.maxX) / 2;
-      const cz = (boardBounds.minZ + boardBounds.maxZ) / 2;
-
-      const halfW = fitHalfW / zoom;
-      const halfH = fitHalfH / zoom;
-      camera.left = -halfW;
-      camera.right = halfW;
-      camera.top = halfH;
-      camera.bottom = -halfH;
-      camera.near = 0.5;
-      camera.far = 80;
-      camera.updateProjectionMatrix();
-
-      const focus = new THREE.Vector3(cx + pan.x, viewCenterY, cz + pan.y);
-      camera.position.copy(focus).add(CAM_OFFSET);
-      camera.lookAt(focus);
-    }
-
-    function spawnBurst(pos: THREE.Vector3, colorHex: number, count = 10) {
-      for (let i = 0; i < count; i++) {
-        const size = 0.08 + Math.random() * 0.07;
-        const mesh = kit.part(effectsGroup, 'box', colorHex, [size, size, size], [pos.x, pos.y + 0.35, pos.z]);
-        particles.push({
-          mesh,
-          velocity: new THREE.Vector3(
-            (Math.random() - 0.5) * 3.4,
-            1.8 + Math.random() * 2.4,
-            (Math.random() - 0.5) * 3.4,
-          ),
-          spin: new THREE.Vector3(Math.random() * 6, Math.random() * 6, Math.random() * 6),
-          life: 0.55 + Math.random() * 0.25,
-          maxLife: 0.8,
-        });
-      }
-    }
-
     function refreshFreeStates() {
       if (!currentBoard) return;
       const active = getActiveTiles(currentBoard.tiles);
@@ -725,13 +496,15 @@ export function mountMoojong({
       matchStreak = 0;
       elapsedSec = 0;
       timerRunning = false;
-      zoom = 1;
-      pan.set(0, 0);
-      targetPan.set(0, 0);
-      setTargetZoom(1);
 
       computeBoardBounds(currentBoard.tiles);
-      buildPastureTable();
+      buildPastureTable(kit, tableGroup, {
+        spanX: Math.max(9.5, boardBounds.maxX - boardBounds.minX + 2.2),
+        spanZ: Math.max(7.5, boardBounds.maxZ - boardBounds.minZ + 2.0),
+        cx: (boardBounds.minX + boardBounds.maxX) / 2,
+        cz: (boardBounds.minZ + boardBounds.maxZ) / 2,
+        checker: true,
+      });
 
       for (const tile of currentBoard.tiles) {
         const delay = tile.gz * 0.045 + ((tile.gx + tile.gy + 20) % 7) * 0.012;
@@ -739,7 +512,8 @@ export function mountMoojong({
       }
 
       refreshFreeStates();
-      updateCameraFrustum();
+      cam.snapHome();
+      cam.setBounds(boardBounds, viewCenterY);
       syncHud();
       setStatus(announce ?? `${currentBoard.layoutName} · ${DIFFICULTIES[difficulty].label}`, 2.8);
     }
@@ -754,7 +528,7 @@ export function mountMoojong({
         // Celebratory meadow fireworks
         for (let i = 0; i < 6; i++) {
           const p = new THREE.Vector3((Math.random() - 0.5) * 7, 0.8 + Math.random() * 1.6, (Math.random() - 0.5) * 5);
-          spawnBurst(p, i % 2 === 0 ? 0xffefaf : 0x9eb09a, 12);
+          bursts.spawn(p, i % 2 === 0 ? 0xffefaf : 0x9eb09a, 12);
         }
         setStatus('Pasture cleared!', 5);
         syncHud();
@@ -804,7 +578,7 @@ export function mountMoojong({
           v.clearProgress = 0;
           v.clearTargetOffset.copy(mid).sub(v.basePos).multiplyScalar(0.28);
           v.hitMesh.visible = false;
-          spawnBurst(v.basePos, burstColor, 8);
+          bursts.spawn(v.basePos, burstColor, 8);
         }
       }
 
@@ -935,7 +709,7 @@ export function mountMoojong({
       // Settled boards need fresh bounds (and top layer) before re-shading tiles
       if (flattened) {
         computeBoardBounds(getActiveTiles(currentBoard.tiles));
-        updateCameraFrustum();
+        cam.setBounds(boardBounds, viewCenterY);
       }
 
       // Update tile visuals with fresh faces & gentle hop animation
@@ -964,20 +738,10 @@ export function mountMoojong({
       );
     }
 
-    // -------------------------------------------------------------------------
-    // Pointer, Touch Pinch-Zoom, Pan & Raycasting
-    // -------------------------------------------------------------------------
     const raycaster = new THREE.Raycaster();
-    const ndc = new THREE.Vector2();
 
     function pickTileAt(clientX: number, clientY: number): number | null {
-      const rect = renderer.domElement.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) return null;
-      ndc.set(
-        ((clientX - rect.left) / rect.width) * 2 - 1,
-        -((clientY - rect.top) / rect.height) * 2 + 1,
-      );
-      raycaster.setFromCamera(ndc, camera);
+      if (!cam.setRay(raycaster, clientX, clientY)) return null;
       const activeHits = hitMeshes.filter((m) => {
         const id = m.userData.tileId as number;
         const v = visuals.get(id);
@@ -988,127 +752,32 @@ export function mountMoojong({
       return hits[0].object.userData.tileId as number;
     }
 
-    const activePointers = new Map<number, { x: number; y: number }>();
-    let downX = 0;
-    let downY = 0;
-    let dragged = false;
-    let pinchStartDist = 0;
-    let pinchStartZoom = 1;
-    let lastPanX = 0;
-    let lastPanY = 0;
-
-    function screenDeltaToWorldPan(dxPx: number, dyPx: number) {
-      const rect = renderer.domElement.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) return;
-      const worldPerPxX = (fitHalfW * 2) / zoom / rect.width;
-      const worldPerPxY = (fitHalfH * 2) / zoom / rect.height;
-      targetPan.x -= dxPx * worldPerPxX;
-      targetPan.y -= dyPx * worldPerPxY;
-      clampPan(targetPan, targetZoom);
-    }
-
-    renderer.domElement.addEventListener(
-      'pointerdown',
-      (e) => {
-        audio.unlock();
-        renderer.domElement.setPointerCapture(e.pointerId);
-        activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-        if (activePointers.size === 1) {
-          downX = e.clientX;
-          downY = e.clientY;
-          lastPanX = e.clientX;
-          lastPanY = e.clientY;
-          dragged = false;
-        } else if (activePointers.size === 2) {
-          dragged = true;
-          const pts = Array.from(activePointers.values());
-          pinchStartDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
-          pinchStartZoom = targetZoom;
-          lastPanX = (pts[0].x + pts[1].x) / 2;
-          lastPanY = (pts[0].y + pts[1].y) / 2;
-        }
+    const cam = createBoardCamera({
+      viewport,
+      renderer,
+      offset: CAM_OFFSET,
+      pad: { x: 1.35, z: 1.25 },
+      maxZoom: MAX_ZOOM,
+      insets: (w, h) => {
+        const v = w < 640 ? 0.74 : 0.78;
+        const hz = w < 640 ? 0.94 : 0.92;
+        return { top: h * (1 - v) / 2, bottom: h * (1 - v) / 2, left: w * (1 - hz) / 2, right: w * (1 - hz) / 2 };
       },
-      { signal },
-    );
-
-    renderer.domElement.addEventListener(
-      'pointermove',
-      (e) => {
-        if (activePointers.has(e.pointerId)) {
-          activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-          if (activePointers.size === 2) {
-            const pts = Array.from(activePointers.values());
-            const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
-            const midX = (pts[0].x + pts[1].x) / 2;
-            const midY = (pts[0].y + pts[1].y) / 2;
-            if (pinchStartDist > 10) setTargetZoom(pinchStartZoom * (dist / pinchStartDist));
-            screenDeltaToWorldPan(midX - lastPanX, midY - lastPanY);
-            lastPanX = midX;
-            lastPanY = midY;
-            return;
-          }
-
-          if (activePointers.size === 1) {
-            const moveDist = Math.hypot(e.clientX - downX, e.clientY - downY);
-            if (moveDist > 9 && targetZoom > 1.04) {
-              dragged = true;
-              screenDeltaToWorldPan(e.clientX - lastPanX, e.clientY - lastPanY);
-              lastPanX = e.clientX;
-              lastPanY = e.clientY;
-            } else if (moveDist > 14) {
-              dragged = true;
-            }
-          }
-          return;
-        }
-
-        // Desktop hover highlight
+      signal,
+      onPress: () => audio.unlock(),
+      onTap: (x, y) => {
+        const hit = pickTileAt(x, y);
+        if (hit !== null) handleTileTap(hit);
+        else if (selectedId !== null) deselect();
+      },
+      onHover: (x, y, e) => {
         if (e.pointerType === 'mouse' && phase === 'playing') {
-          hoveredId = pickTileAt(e.clientX, e.clientY);
+          hoveredId = pickTileAt(x, y);
           renderer.domElement.style.cursor = hoveredId !== null ? 'pointer' : 'default';
         }
       },
-      { signal },
-    );
-
-    function finishPointer(e: PointerEvent) {
-      const wasSingle = activePointers.size === 1;
-      activePointers.delete(e.pointerId);
-      if (wasSingle && !dragged && e.button !== 2) {
-        const hit = pickTileAt(e.clientX, e.clientY);
-        if (hit !== null) {
-          handleTileTap(hit);
-        } else if (selectedId !== null) {
-          deselect();
-        }
-      }
-      if (activePointers.size === 1) {
-        const remaining = Array.from(activePointers.values())[0];
-        lastPanX = remaining.x;
-        lastPanY = remaining.y;
-      }
-    }
-
-    renderer.domElement.addEventListener('pointerup', finishPointer, { signal });
-    renderer.domElement.addEventListener(
-      'pointercancel',
-      (e) => {
-        activePointers.delete(e.pointerId);
-      },
-      { signal },
-    );
-
-    renderer.domElement.addEventListener(
-      'wheel',
-      (e) => {
-        e.preventDefault();
-        const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-        setTargetZoom(targetZoom * factor);
-      },
-      { passive: false, signal },
-    );
+      onZoomedChange: (zoomed) => onState({ zoomed }),
+    });
 
     // Keyboard shortcuts
     window.addEventListener(
@@ -1131,10 +800,6 @@ export function mountMoojong({
       },
       { signal },
     );
-
-    const resizeObserver = new ResizeObserver(() => updateCameraFrustum());
-    resizeObserver.observe(viewport);
-    cleanups.push(() => resizeObserver.disconnect());
 
     document.addEventListener(
       'visibilitychange',
@@ -1170,14 +835,7 @@ export function mountMoojong({
         onState({ status: '' });
       }
 
-      // Smooth camera zoom & pan interpolation
-      const camLerp = 1 - Math.exp(-dt * 12);
-      const prevZoom = zoom;
-      zoom = THREE.MathUtils.lerp(zoom, targetZoom, camLerp);
-      pan.lerp(targetPan, camLerp);
-      if (Math.abs(zoom - targetZoom) > 0.0005 || Math.abs(zoom - prevZoom) > 0.0005 || pan.distanceTo(targetPan) > 0.0005) {
-        applyCameraTransform();
-      }
+      cam.update(dt);
 
       // Active free set for hover lift
       const active = currentBoard ? getActiveTiles(currentBoard.tiles) : [];
@@ -1257,24 +915,9 @@ export function mountMoojong({
         }
       }
 
-      // Update sparkle burst particles
-      for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i];
-        p.life -= dt;
-        if (p.life <= 0) {
-          effectsGroup.remove(p.mesh);
-          particles.splice(i, 1);
-          continue;
-        }
-        p.velocity.y -= 7.2 * dt;
-        p.mesh.position.addScaledVector(p.velocity, dt);
-        p.mesh.rotation.x += p.spin.x * dt;
-        p.mesh.rotation.y += p.spin.y * dt;
-        const t = p.life / p.maxLife;
-        p.mesh.scale.setScalar(Math.max(0.001, t * 0.14));
-      }
+      bursts.update(dt);
 
-      renderer.render(scene, camera);
+      renderer.render(scene, cam.camera);
     }
 
     function toggleMute() {
@@ -1292,8 +935,7 @@ export function mountMoojong({
     }
 
     function resetView() {
-      targetPan.set(0, 0);
-      setTargetZoom(1);
+      cam.resetView();
       audio.playUiClick(false);
     }
 

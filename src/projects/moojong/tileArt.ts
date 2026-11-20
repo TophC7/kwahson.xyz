@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { PastureKit } from '../../lib/pastureKit';
 import { SUIT_STYLES, TILE_DESIGNS, type TileDesign } from './deck';
-import { buildMiniature, createStudioBuilder, createStudioStage, frameModel } from './miniatures';
+import { buildMiniature, createStudioBuilder, createStudioStage, frameModel } from '../../lib/miniatures';
 
 export interface TileArtAtlas {
   materials: Map<string, THREE.MeshStandardMaterial>;

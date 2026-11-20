@@ -1,3 +1,12 @@
+<script module lang="ts">
+  import { TILE_DESIGNS } from './deck';
+
+  const GALLERY_ITEMS = TILE_DESIGNS.map((d) => ({ id: d.id, name: d.name, group: d.suit, badge: d.badge }));
+  const GALLERY_TAGS = Object.fromEntries(
+    ['cow', 'healer-cow', 'hay-bale', 'rock', 'stump', 'crate', 'ufo'].map((id) => [id, 'Patrol']),
+  );
+</script>
+
 <script lang="ts">
   import {
     Award01Icon,
@@ -15,9 +24,9 @@
   } from '@hugeicons/core-free-icons';
   import Icon from '../../components/Icon.svelte';
   import { DIFFICULTIES, type Difficulty } from './board';
-  import { TILE_DESIGNS, TOTAL_TILES } from './deck';
+  import { SUIT_STYLES, TOTAL_TILES } from './deck';
   import { mountMoojong, type MoojongController, type MoojongHudState } from './scene';
-  import TileGallery from './TileGallery.svelte';
+  import AssetGallery from '../../components/AssetGallery.svelte';
 
   const DIFFICULTY_LIST = Object.keys(DIFFICULTIES) as Difficulty[];
   const SEASON_IDS = TILE_DESIGNS.filter((d) => d.suit === 'season').map((d) => d.id);
@@ -521,7 +530,12 @@
 
   <!-- Asset Review Gallery -->
   {#if showGallery}
-    <TileGallery
+    <AssetGallery
+      title="Tile Assets"
+      storageKey="moojong-asset-review-v1"
+      items={GALLERY_ITEMS}
+      groups={SUIT_STYLES}
+      tags={GALLERY_TAGS}
       {previews}
       onClose={() => setGalleryOpen(false)}
     />

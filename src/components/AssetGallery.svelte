@@ -1,3 +1,17 @@
+<script module lang="ts">
+  export interface GalleryItem {
+    id: string;
+    name: string;
+    group: string;
+    badge: string;
+  }
+
+  export interface GalleryGroup {
+    label: string;
+    accent: string;
+  }
+</script>
+
 <script lang="ts">
   import {
     ArrowLeft01Icon,
@@ -7,13 +21,13 @@
     Delete02Icon,
     Tick01Icon,
   } from '@hugeicons/core-free-icons';
-  import Icon from '../../components/Icon.svelte';
-  import { SUIT_STYLES, TILE_DESIGNS, type TileDesign, type TileSuit } from './deck';
-  import { createTurntable } from './turntable';
+  import type * as THREE from 'three';
+  import type { StudioBuilder } from '../lib/miniatures';
+  import { createTurntable } from '../lib/turntable';
+  import Icon from './Icon.svelte';
 
   type ReviewStatus = 'ok' | 'tweak' | 'redo' | '';
   type ViewMode = 'both' | 'tile' | 'model';
-  type FilterMode = 'all' | 'notes' | TileSuit;
 
   interface ReviewEntry {
     status: ReviewStatus;
@@ -21,13 +35,16 @@
   }
 
   interface Props {
-    previews: Record<string, string>;
+    title: string;
+    storageKey: string;
+    items: GalleryItem[];
+    groups: Record<string, GalleryGroup>;
+    build?: (studio: StudioBuilder, id: string) => THREE.Group;
+    previews?: Record<string, string>;
+    tags?: Record<string, string>;
     onClose: () => void;
   }
 
-  const STORAGE_KEY = 'moojong-asset-review-v1';
-  const REUSED_IDS = new Set(['cow', 'healer-cow', 'hay-bale', 'rock', 'stump', 'crate', 'ufo']);
-  const SUITS = Object.keys(SUIT_STYLES) as TileSuit[];
   const STATUSES: { id: Exclude<ReviewStatus, ''>; label: string; cls: string }[] = [
     { id: 'ok', label: 'OK', cls: 'border-sage/60 bg-sage/24 text-ink' },
     { id: 'tweak', label: 'Tweak', cls: 'border-ochre/70 bg-ochre/24 text-ink' },
@@ -36,14 +53,14 @@
   // Status/comment review + JSON export only exist on the dev server; Vite folds this to `false` in builds so those branches drop out.
   const REVIEW = import.meta.env.DEV;
 
-  let { previews, onClose }: Props = $props();
+  let { title, storageKey, items, groups, build, previews, tags, onClose }: Props = $props();
 
-  const turntable = createTurntable();
-  $effect(() => () => turntable.destroy());
+  const turntable = $derived(createTurntable(build));
+  $effect(() => turntable.destroy);
 
   function loadSaved(): Record<string, ReviewEntry> {
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
+      const raw = window.localStorage.getItem(storageKey);
       if (!raw) return {};
       const parsed = JSON.parse(raw);
       return parsed && typeof parsed === 'object' ? parsed : {};
@@ -53,7 +70,7 @@
   }
 
   let reviews = $state<Record<string, ReviewEntry>>(REVIEW ? loadSaved() : {});
-  let filter = $state<FilterMode>('all');
+  let filter = $state('all');
   let viewMode = $state<ViewMode>('both');
   let copied = $state(false);
   let showJson = $state(false);
@@ -62,7 +79,7 @@
 
   function saveReviews() {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(reviews));
+      window.localStorage.setItem(storageKey, JSON.stringify(reviews));
     } catch {
       // Ignore storage failures
     }
@@ -88,10 +105,10 @@
   }
 
   const exportItems = $derived(
-    TILE_DESIGNS.filter((d) => hasFeedback(d.id)).map((d) => ({
+    items.filter((d) => hasFeedback(d.id)).map((d) => ({
       id: d.id,
       name: d.name,
-      suit: d.suit,
+      group: d.group,
       badge: d.badge,
       status: reviews[d.id].status || 'note',
       comment: reviews[d.id].comment.trim(),
@@ -101,15 +118,15 @@
   const exportJson = $derived(JSON.stringify(exportItems, null, 2));
 
   const filteredDesigns = $derived.by(() => {
-    if (filter === 'all') return TILE_DESIGNS;
-    if (filter === 'notes') return TILE_DESIGNS.filter((d) => hasFeedback(d.id));
-    return TILE_DESIGNS.filter((d) => d.suit === filter);
+    if (filter === 'all') return items;
+    if (filter === 'notes') return items.filter((d) => hasFeedback(d.id));
+    return items.filter((d) => d.group === filter);
   });
 
   const focusedIndex = $derived(
     focusedId ? filteredDesigns.findIndex((d) => d.id === focusedId) : -1,
   );
-  const focusedDesign = $derived<TileDesign | null>(
+  const focusedDesign = $derived<GalleryItem | null>(
     focusedIndex >= 0 ? filteredDesigns[focusedIndex] : null,
   );
 
@@ -167,7 +184,7 @@
   class="absolute inset-0 z-40 flex flex-col bg-canvas text-ink select-text"
   role="dialog"
   aria-modal="true"
-  aria-label="Moojong Asset Review Gallery"
+  aria-label={title}
 >
   <!-- Sticky top review bar -->
   <header class="shrink-0 border-b border-[rgba(213,215,207,0.1)] bg-surface/95 px-3 py-2.5 backdrop-blur-md sm:px-5">
@@ -179,39 +196,41 @@
           class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-sm border border-[rgba(213,215,207,0.14)] bg-surface-raised px-2.5 font-mono text-[11px] text-ink transition-colors hover:border-sage/45"
         >
           <Icon icon={ArrowLeft01Icon} size={14} strokeWidth={2} />
-          <span>Board</span>
+          <span>Back</span>
         </button>
 
         <div>
           <h1 class="text-sm font-semibold tracking-tight text-ink sm:text-base">
-            {REVIEW ? 'Tile Asset Review' : 'Tile Assets'} <span class="font-mono text-xs font-normal text-ink-dim">({TILE_DESIGNS.length} tiles)</span>
+            {title}{REVIEW ? ' Review' : ''} <span class="font-mono text-xs font-normal text-ink-dim">({items.length})</span>
           </h1>
         </div>
       </div>
 
       <!-- View mode + JSON export actions -->
       <div class="flex flex-wrap items-center gap-1.5">
-        <div
-          role="group"
-          aria-label="Preview view mode"
-          class="flex items-center rounded-sm border border-[rgba(213,215,207,0.12)] bg-canvas/80 p-0.5 font-mono text-[10.5px]"
-        >
-          {#each [
-            { id: 'both', label: 'Both' },
-            { id: 'tile', label: 'Tile' },
-            { id: 'model', label: '3D Model' },
-          ] as mode}
-            <button
-              type="button"
-              onclick={() => (viewMode = mode.id as ViewMode)}
-              class="cursor-pointer rounded-[2px] px-2 py-1 transition-colors {viewMode === mode.id
-                ? 'bg-sage/25 text-ink'
-                : 'text-ink-muted hover:text-ink'}"
-            >
-              {mode.label}
-            </button>
-          {/each}
-        </div>
+        {#if previews}
+          <div
+            role="group"
+            aria-label="Preview view mode"
+            class="flex items-center rounded-sm border border-[rgba(213,215,207,0.12)] bg-canvas/80 p-0.5 font-mono text-[10.5px]"
+          >
+            {#each [
+              { id: 'both', label: 'Both' },
+              { id: 'tile', label: 'Tile' },
+              { id: 'model', label: '3D Model' },
+            ] as mode}
+              <button
+                type="button"
+                onclick={() => (viewMode = mode.id as ViewMode)}
+                class="cursor-pointer rounded-[2px] px-2 py-1 transition-colors {viewMode === mode.id
+                  ? 'bg-sage/25 text-ink'
+                  : 'text-ink-muted hover:text-ink'}"
+              >
+                {mode.label}
+              </button>
+            {/each}
+          </div>
+        {/if}
 
         {#if REVIEW}
           <button
@@ -248,7 +267,7 @@
       </div>
     </div>
 
-    <!-- Suit filter pills -->
+    <!-- Group filter pills -->
     <div class="mx-auto mt-2.5 flex max-w-7xl flex-wrap items-center gap-1.5">
       <button
         type="button"
@@ -257,7 +276,7 @@
           ? 'border-sage/50 bg-sage/20 text-ink'
           : 'border-[rgba(213,215,207,0.09)] bg-canvas/60 text-ink-muted hover:text-ink'}"
       >
-        All ({TILE_DESIGNS.length})
+        All ({items.length})
       </button>
 
       {#if REVIEW}
@@ -274,16 +293,16 @@
 
       <span class="mx-0.5 h-3.5 w-px bg-[rgba(213,215,207,0.12)]" aria-hidden="true"></span>
 
-      {#each SUITS as suit}
-        {@const count = TILE_DESIGNS.filter((d) => d.suit === suit).length}
+      {#each Object.keys(groups) as group}
+        {@const count = items.filter((d) => d.group === group).length}
         <button
           type="button"
-          onclick={() => (filter = suit)}
-          class="cursor-pointer rounded-sm border px-2 py-0.5 font-mono text-[10.5px] transition-colors {filter === suit
+          onclick={() => (filter = group)}
+          class="cursor-pointer rounded-sm border px-2 py-0.5 font-mono text-[10.5px] transition-colors {filter === group
             ? 'border-sage/50 bg-sage/20 text-ink'
             : 'border-[rgba(213,215,207,0.09)] bg-canvas/60 text-ink-muted hover:text-ink'}"
         >
-          {SUIT_STYLES[suit].label} ({count})
+          {groups[group].label} ({count})
         </button>
       {/each}
     </div>
@@ -319,15 +338,15 @@
             onclick={() => (filter = 'all')}
             class="mt-3 cursor-pointer rounded-sm border border-sage/45 bg-sage/18 px-3 py-1.5 font-mono text-[11px] text-ink"
           >
-            Show all 42 assets
+            Show all {items.length} assets
           </button>
         </div>
       {:else}
         <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {#each filteredDesigns as design (design.id)}
             {@const entry = getEntry(design.id)}
-            {@const suit = SUIT_STYLES[design.suit]}
-            {@const reused = REUSED_IDS.has(design.id)}
+            {@const group = groups[design.group]}
+            {@const tag = tags?.[design.id]}
             <article
               class="flex flex-col overflow-hidden rounded-md border bg-surface transition-colors {entry.status === 'redo'
                 ? 'border-[#c96c5b]/55'
@@ -342,7 +361,7 @@
                 <div class="flex min-w-0 items-center gap-2">
                   <span
                     class="inline-flex h-5 min-w-[22px] items-center justify-center rounded-[3px] px-1 font-mono text-[10px] font-bold text-[#fbf7ee]"
-                    style="background-color: {suit.accent};"
+                    style="background-color: {group.accent};"
                   >
                     {design.badge}
                   </span>
@@ -353,13 +372,13 @@
                 </div>
 
                 <div class="flex shrink-0 items-center gap-1">
-                  {#if reused}
+                  {#if tag}
                     <span class="rounded-[3px] border border-sage/35 bg-sage/12 px-1.5 py-0.5 font-mono text-[9px] text-sage-soft uppercase">
-                      Patrol
+                      {tag}
                     </span>
                   {/if}
                   <span class="rounded-[3px] border border-[rgba(213,215,207,0.09)] bg-canvas/70 px-1.5 py-0.5 font-mono text-[9px] text-ink-dim uppercase">
-                    {suit.label}
+                    {group.label}
                   </span>
                 </div>
               </div>
@@ -371,21 +390,19 @@
                 class="group relative flex cursor-zoom-in items-center justify-center gap-2.5 bg-[#141613] p-3 transition-colors hover:bg-[#191c18]"
                 title="Click to inspect larger"
               >
-                {#if viewMode === 'both' || viewMode === 'tile'}
-                  {#if previews[design.id]}
-                    <img
-                      src={previews[design.id]}
-                      alt={`${design.name} tile face`}
-                      class="rounded-[6px] shadow-[0_8px_20px_rgba(0,0,0,0.45)] {viewMode === 'both'
-                        ? 'h-36 w-auto'
-                        : 'h-48 w-auto'}"
-                    />
-                  {/if}
+                {#if previews?.[design.id] && viewMode !== 'model'}
+                  <img
+                    src={previews[design.id]}
+                    alt={`${design.name} tile face`}
+                    class="rounded-[6px] shadow-[0_8px_20px_rgba(0,0,0,0.45)] {viewMode === 'both'
+                      ? 'h-36 w-auto'
+                      : 'h-48 w-auto'}"
+                  />
                 {/if}
 
-                {#if viewMode === 'both' || viewMode === 'model'}
+                {#if !previews || viewMode !== 'tile'}
                   <div
-                    class="flex items-center justify-center rounded-[6px] border border-[rgba(213,215,207,0.08)] bg-[#232721] p-1.5 {viewMode === 'both'
+                    class="flex items-center justify-center rounded-[6px] border border-[rgba(213,215,207,0.08)] bg-[#232721] p-1.5 {previews && viewMode === 'both'
                       ? 'h-36 w-32'
                       : 'h-48 w-48'}"
                   >
@@ -434,7 +451,7 @@
 
   <!-- Lightbox detail view for inspecting an asset up close & stepping with arrow keys -->
   {#if focusedDesign}
-    {@const suit = SUIT_STYLES[focusedDesign.suit]}
+    {@const group = groups[focusedDesign.group]}
     <div
       class="fixed inset-0 z-50 grid place-items-center bg-canvas/82 p-4 backdrop-blur-sm"
       role="dialog"
@@ -446,7 +463,7 @@
           <div class="flex items-center gap-2.5">
             <span
               class="inline-flex h-6 min-w-[26px] items-center justify-center rounded-[3px] px-1.5 font-mono text-xs font-bold text-[#fbf7ee]"
-              style="background-color: {suit.accent};"
+              style="background-color: {group.accent};"
             >
               {focusedDesign.badge}
             </span>
@@ -487,17 +504,19 @@
           </div>
         </div>
 
-        <div class="grid grid-cols-1 gap-4 bg-[#141613] p-5 sm:grid-cols-2">
-          <div class="flex flex-col items-center gap-2">
-            <span class="font-mono text-[10px] tracking-wider text-ink-dim uppercase">Tile Face</span>
-            {#if previews[focusedDesign.id]}
-              <img
-                src={previews[focusedDesign.id]}
-                alt={`${focusedDesign.name} tile face`}
-                class="h-64 w-auto rounded-[8px] shadow-[0_12px_30px_rgba(0,0,0,0.5)]"
-              />
-            {/if}
-          </div>
+        <div class="grid grid-cols-1 gap-4 bg-[#141613] p-5 {previews ? 'sm:grid-cols-2' : ''}">
+          {#if previews}
+            <div class="flex flex-col items-center gap-2">
+              <span class="font-mono text-[10px] tracking-wider text-ink-dim uppercase">Tile Face</span>
+              {#if previews[focusedDesign.id]}
+                <img
+                  src={previews[focusedDesign.id]}
+                  alt={`${focusedDesign.name} tile face`}
+                  class="h-64 w-auto rounded-[8px] shadow-[0_12px_30px_rgba(0,0,0,0.5)]"
+                />
+              {/if}
+            </div>
+          {/if}
           <div class="flex flex-col items-center gap-2">
             <span class="font-mono text-[10px] tracking-wider text-ink-dim uppercase">3D Miniature</span>
             <div class="flex h-64 w-64 items-center justify-center rounded-[8px] border border-[rgba(213,215,207,0.1)] bg-[#232721] p-3">

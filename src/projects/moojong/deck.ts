@@ -1,3 +1,5 @@
+import { shuffle } from '../../lib/rng';
+
 export type TileSuit = 'herd' | 'farm' | 'harvest' | 'sky' | 'night' | 'season' | 'bloom';
 
 export interface TileDesign {
@@ -107,7 +109,7 @@ const CORE_DESIGNS: Omit<TileDesign, 'matchKey' | 'isBonus'>[] = [
   { id: 'ufo', name: 'Saucer', suit: 'sky', badge: 'N' },
   { id: 'scout-pod', name: 'Scout', suit: 'sky', badge: 'E' },
   { id: 'alien', name: 'Visitor', suit: 'sky', badge: 'S' },
-  { id: 'pikmin', name: 'Pikmin', suit: 'sky', badge: 'W' },
+  { id: 'sprouts', name: 'Sprouts', suit: 'sky', badge: 'W' },
 
   // Night Watch / Dragons (3 x 4 = 12)
   { id: 'moon', name: 'Moon', suit: 'night', badge: '★' },
@@ -146,14 +148,6 @@ export const TILE_DESIGN_MAP = new Map<string, TileDesign>(
 );
 
 export const TOTAL_TILES = 144;
-
-export function shuffle<T>(arr: T[], rng: () => number): T[] {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
 
 /**
  * Builds the standard 72 matching pairs (144 tiles total):

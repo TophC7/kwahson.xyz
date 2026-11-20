@@ -4,14 +4,14 @@ import {
   PASTURE_HEMI_SKY,
   PASTURE_SUN_COLOR,
   type PastureKit,
-} from '../../lib/pastureKit';
+} from './pastureKit';
 
 /**
  * Studio helper passed into model builders so organic/sculpted models can use
  * smooth-shaded high-segment geometries, LatheGeometry, and ExtrudeGeometry,
  * while automatically disposing all temporary studio resources after baking.
  */
-interface StudioBuilder {
+export interface StudioBuilder {
   kit: PastureKit;
   /** Chunky flat-shaded Pasture Patrol primitive (for voxel/blocky assets). */
   part: PastureKit['part'];
@@ -268,6 +268,35 @@ function makeLowPolyPetalGeo(
   });
   geo.translate(0, 0, -depth / 2);
   return studio.track(geo);
+}
+
+type SproutColor = 'red' | 'yellow' | 'blue';
+
+/** One blocky mini visitor; its colour picks the sprout on its head (red bud, yellow leaf, blue flower). */
+function buildSprout({ part }: StudioBuilder, kind: SproutColor): THREE.Group {
+  const p = new THREE.Group();
+  const color = kind === 'blue' ? 0x3b80d9 : kind === 'yellow' ? 0xf2d144 : 0xe0483d;
+  part(p, 'box', color, [0.16, 0.16, 0.13], [0, 0.16, 0]);
+  part(p, 'box', color, [0.3, 0.22, 0.24], [0, 0.35, 0]);
+  part(p, 'box', 0x4ca644, [0.03, 0.18, 0.03], [0, 0.55, 0]);
+  for (const side of [-1, 1]) {
+    part(p, 'box', color, [0.05, 0.08, 0.06], [side * 0.045, 0.04, 0]);
+    part(p, 'box', color, [0.04, 0.1, 0.05], [side * 0.1, 0.17, 0.01]);
+    part(p, 'sphere', 0x111613, [0.06, 0.03, 0.012], [side * 0.075, 0.36, 0.12]).rotation.z = side * 0.3;
+  }
+  if (kind === 'red') {
+    part(p, 'box', 0x4ca644, [0.1, 0.05, 0.1], [0, 0.66, 0]);
+    part(p, 'box', 0x9cd994, [0.1, 0.12, 0.1], [0, 0.74, 0]);
+  } else if (kind === 'yellow') {
+    part(p, 'box', 0x76bf54, [0.2, 0.04, 0.1], [0.08, 0.67, 0]).rotation.z = 0.4;
+    part(p, 'box', 0x76bf54, [0.08, 0.035, 0.06], [0.2, 0.74, 0]).rotation.z = 0.7;
+  } else {
+    part(p, 'box', 0xf6c93b, [0.07, 0.07, 0.05], [0, 0.69, 0.02]);
+    for (const [px, py] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+      part(p, 'box', 0x8fb8f5, [0.08, 0.08, 0.03], [px * 0.075, 0.69 + py * 0.075, 0]);
+    }
+  }
+  return p;
 }
 
 /**
@@ -1329,207 +1358,41 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
     }
 
     case 'alien': {
-      // Classic all-green chubby low-poly alien with flared green antennae & sleek tilted black eyes!
+      // Blocky green visitor: big square head, slanted oval eyes, oval-tipped antennae.
       const g = new THREE.Group();
       const green = 0x67d964;
-
-      // Plump little chubby body + two stubby little legs + two stubby arms (all one clean green!)
-      const bodyGeo = track(new THREE.SphereGeometry(1, 10, 8));
-      const body = mesh(g, bodyGeo, green, [0, 0.34, 0], { flat: true, roughness: 0.84 });
-      body.scale.set(0.32, 0.3, 0.28);
-
-      const limbGeo = track(new THREE.SphereGeometry(1, 8, 6));
+      const dark = 0x4fb85a;
+      part(g, 'box', green, [0.38, 0.3, 0.3], [0, 0.33, 0]);
+      part(g, 'box', green, [0.6, 0.42, 0.46], [0, 0.69, 0]);
       for (const side of [-1, 1]) {
-        // Stubby rounded feet
-        const leg = mesh(g, limbGeo, green, [side * 0.16, 0.1, 0.02], { flat: true, roughness: 0.84 });
-        leg.scale.set(0.13, 0.14, 0.13);
-
-        // Stubby little arms angled gently outward
-        const arm = mesh(g, limbGeo, green, [side * 0.34, 0.34, 0.02], { flat: true, roughness: 0.84 });
-        arm.scale.set(0.11, 0.16, 0.11);
-        arm.rotation.z = side * 0.48;
+        part(g, 'box', dark, [0.14, 0.18, 0.16], [side * 0.11, 0.09, 0]);
+        part(g, 'box', dark, [0.1, 0.24, 0.12], [side * 0.24, 0.32, 0.02]);
+        part(g, 'sphere', 0x111613, [0.11, 0.055, 0.02], [side * 0.14, 0.7, 0.23]).rotation.z = side * 0.3;
+        part(g, 'box', dark, [0.05, 0.2, 0.05], [side * 0.18, 1.0, 0]).rotation.z = -side * 0.35;
+        part(g, 'sphere', green, [0.07, 0.09, 0.07], [side * 0.22, 1.14, 0]);
       }
-
-      // Big plump rounded low-poly alien head
-      const headGeo = track(new THREE.SphereGeometry(1, 12, 9));
-      const head = mesh(g, headGeo, green, [0, 0.82, 0], { flat: true, roughness: 0.84 });
-      head.scale.set(0.48, 0.43, 0.44);
-
-      // Two short flared Shrek/gnarp-style all-green antennae poking up from top corners
-      const antStalkGeo = track(new THREE.CylinderGeometry(0.095, 0.055, 0.24, 8));
-      const antTipGeo = track(new THREE.SphereGeometry(1, 8, 6));
-      for (const side of [-1, 1]) {
-        const ant = new THREE.Group();
-        ant.position.set(side * 0.3, 1.15, 0);
-        ant.rotation.z = -side * 0.62;
-        g.add(ant);
-        mesh(ant, antStalkGeo, green, [0, 0.1, 0], { flat: true, roughness: 0.84 });
-        const tip = mesh(ant, antTipGeo, green, [0, 0.22, 0], { flat: true, roughness: 0.84 });
-        tip.scale.set(0.145, 0.09, 0.12);
-      }
-
-      // Two sleek narrow tilted black almond eyes (classic mischievous alien look, zero mouth clutter)
-      const eyeGeo = track(new THREE.SphereGeometry(1, 10, 8));
-      for (const side of [-1, 1]) {
-        const eye = mesh(g, eyeGeo, 0x111613, [side * 0.22, 0.78, 0.37], { flat: true, roughness: 0.4 });
-        eye.scale.set(0.15, 0.075, 0.06);
-        eye.rotation.y = side * 0.42;
-        eye.rotation.z = side * 0.22;
-      }
-
-      // Face mostly toward the studio camera (yaw +0.66) so the silhouette stays crisp and symmetrical
       g.rotation.y = 0.46;
       return g;
     }
 
-    case 'pikmin': {
-      // Iconic side-by-side Blue (flower), Yellow (leaf), and Red (bud) Pikmin trio in matte low-poly!
+    case 'sprout-red':
+    case 'sprout-yellow':
+    case 'sprout-blue': {
+      const g = buildSprout(studio, id.slice('sprout-'.length) as SproutColor);
+      g.rotation.y = 0.46;
+      return g;
+    }
+
+    case 'sprouts': {
+      // Blue, yellow and red sprouts huddled side by side.
       const g = new THREE.Group();
-
-      // Unified slender hourglass Pikmin body -> slim neck -> teardrop head (10-sided low-poly Lathe)
-      const bodyProfile = [
-        new THREE.Vector2(0.0, 0.14),
-        new THREE.Vector2(0.085, 0.16),
-        new THREE.Vector2(0.115, 0.28),
-        new THREE.Vector2(0.095, 0.42),
-        new THREE.Vector2(0.068, 0.52), // slim Pikmin neck!
-        new THREE.Vector2(0.14, 0.6),
-        new THREE.Vector2(0.175, 0.72), // round-teardrop head
-        new THREE.Vector2(0.155, 0.84),
-        new THREE.Vector2(0.085, 0.94),
-        new THREE.Vector2(0.042, 1.02),
-      ];
-      const pikminBodyGeo = track(new THREE.LatheGeometry(bodyProfile, 10));
-      const eyeGeo = track(new THREE.SphereGeometry(1, 8, 6));
-      const bigLeafGeo = makeLowPolyPetalGeo(studio, 0.44, 0.17, 0.032);
-      const bigPetalGeo = makeLowPolyPetalGeo(studio, 0.28, 0.135, 0.03);
-
-      const makePikmin = (kind: 'blue' | 'yellow' | 'red') => {
-        const p = new THREE.Group();
-        const color = kind === 'blue' ? 0x3b80d9 : kind === 'yellow' ? 0xf2d144 : 0xe0483d;
-
-        // One cohesive slender Pikmin body+neck+head silhouette
-        mesh(p, pikminBodyGeo, color, [0, 0, 0], { flat: true, roughness: 0.84 });
-
-        // Delicate slender Pikmin arms & legs (thin & lively, NOT chunky logs!)
-        for (const side of [-1, 1]) {
-          const leg = part(p, 'cylinder', color, [0.022, 0.18, 0.022], [side * 0.055, 0.09, 0]);
-          leg.rotation.z = side * 0.14;
-          const arm = part(p, 'cylinder', color, [0.018, 0.22, 0.018], [side * 0.135, 0.36, 0.01]);
-          arm.rotation.z = side * (kind === 'yellow' && side === -1 ? -0.95 : 0.65);
-        }
-
-        // Wide-set flat-ish white oval eyes with bold dark pupils
-        for (const side of [-1, 1]) {
-          const eyeW = mesh(p, eyeGeo, 0xfcfbf7, [side * 0.092, 0.73, 0.138], {
-            flat: true,
-            roughness: 0.85,
-          });
-          eyeW.scale.set(0.056, 0.06, 0.026);
-          eyeW.rotation.y = side * 0.4;
-
-          const pupil = mesh(p, eyeGeo, 0x15181c, [side * 0.098, 0.73, 0.158], {
-            flat: true,
-            roughness: 0.6,
-          });
-          pupil.scale.set(0.032, 0.035, 0.02);
-          pupil.rotation.y = side * 0.4;
-        }
-
-        // Iconic signature facial feature
-        if (kind === 'red') {
-          // Sleek sharp pointy red nose
-          const nose = part(p, 'cone', color, [0.045, 0.18, 0.045], [0, 0.69, 0.22]);
-          nose.rotation.x = Math.PI / 2 + 0.12;
-        } else if (kind === 'yellow') {
-          // Big iconic cupped elf-like yellow ears angled outward
-          for (const side of [-1, 1]) {
-            const ear = part(p, 'cone', color, [0.095, 0.26, 0.045], [side * 0.23, 0.75, -0.01]);
-            ear.rotation.z = -side * 1.1;
-          }
-        } else {
-          // Cute little open pink-tinted triangular mouth
-          const mouth = part(p, 'cone', 0xe59ea8, [0.045, 0.06, 0.025], [0, 0.62, 0.158]);
-          mouth.rotation.z = 0.2;
-        }
-
-        // Tall sweeping BODY-COLORED tapering stem fanning symmetrically across the trio
-        const bendDir = kind === 'blue' ? -0.75 : kind === 'yellow' ? 0.15 : 0.75;
-        const stemCurve = new THREE.CatmullRomCurve3([
-          new THREE.Vector3(0, 0.96, 0),
-          new THREE.Vector3(bendDir * 0.04, 1.18, 0),
-          new THREE.Vector3(bendDir * 0.12, 1.38, 0.02),
-          new THREE.Vector3(bendDir * 0.22, 1.48, 0.04),
-        ]);
-        const stemGeo = track(new THREE.TubeGeometry(stemCurve, 10, 0.024, 6, false));
-        // Taper the tube vertices smoothly from thick base to delicate tip
-        const posAttr = stemGeo.attributes.position;
-        for (let i = 0; i < posAttr.count; i++) {
-          const y = posAttr.getY(i);
-          const t = THREE.MathUtils.clamp((y - 0.96) / 0.52, 0, 1);
-          const pt = stemCurve.getPoint(t);
-          const factor = THREE.MathUtils.lerp(1.55, 0.55, t);
-          posAttr.setXYZ(
-            i,
-            pt.x + (posAttr.getX(i) - pt.x) * factor,
-            pt.y + (posAttr.getY(i) - pt.y) * factor,
-            pt.z + (posAttr.getZ(i) - pt.z) * factor,
-          );
-        }
-        stemGeo.computeVertexNormals();
-        mesh(p, stemGeo, color, [0, 0, 0], { flat: true, roughness: 0.84 });
-
-        // BIG iconic top stage (balanced left/center/right so the trio stays dead-center!):
-        // Blue = big 5-petal blue-white flower; Yellow = big sweeping green leaf; Red = plump green-cupped bud
-        const tipPos: [number, number, number] = [bendDir * 0.24, 1.5, 0.05];
-        if (kind === 'blue') {
-          const flower = new THREE.Group();
-          flower.position.set(tipPos[0], tipPos[1], tipPos[2] + 0.03);
-          flower.rotation.y = 0.2;
-          flower.rotation.x = -0.15;
-          p.add(flower);
-          const center = mesh(flower, eyeGeo, 0xf6c93b, [0, 0, 0.04], { flat: true, roughness: 0.84 });
-          center.scale.set(0.105, 0.12, 0.06);
-          for (let i = 0; i < 5; i++) {
-            const h = new THREE.Group();
-            h.rotation.z = (i * Math.PI * 2) / 5 + 0.2;
-            mesh(h, bigPetalGeo, 0x8fb8f5, [0, 0.055, 0], { flat: true, roughness: 0.84 });
-            flower.add(h);
-          }
-        } else if (kind === 'yellow') {
-          const leaf = mesh(p, bigLeafGeo, 0x76bf54, tipPos, { flat: true, roughness: 0.84 });
-          leaf.rotation.z = -0.65;
-          leaf.rotation.x = 0.3;
-        } else {
-          // Plump pale-mint bud wrapped in a green calyx cup
-          const budGroup = new THREE.Group();
-          budGroup.position.set(tipPos[0] + 0.02, tipPos[1] + 0.03, tipPos[2]);
-          budGroup.rotation.z = -0.6;
-          p.add(budGroup);
-          const calyx = part(budGroup, 'cone', 0x4ca644, [0.15, 0.18, 0.15], [0, -0.02, 0]);
-          calyx.rotation.x = Math.PI;
-          const budBulb = mesh(budGroup, eyeGeo, 0x9cd994, [0, 0.08, 0], { flat: true, roughness: 0.84 });
-          budBulb.scale.set(0.135, 0.15, 0.135);
-        }
-
-        return p;
-      };
-
-      // Clean balanced side-by-side lineup: Blue (left), Yellow (center), Red (right)
-      const blueP = makePikmin('blue');
-      blueP.position.set(-0.42, 0, 0.02);
-      blueP.rotation.y = 0.12;
-      g.add(blueP);
-
-      const yellowP = makePikmin('yellow');
-      yellowP.position.set(0, -0.02, 0.06);
-      g.add(yellowP);
-
-      const redP = makePikmin('red');
-      redP.position.set(0.42, 0, 0.02);
-      redP.rotation.y = -0.18;
-      g.add(redP);
-
+      const lineup = [['blue', -0.33, -0.02, 0.12], ['yellow', 0, 0.08, 0], ['red', 0.33, -0.02, -0.18]] as const;
+      for (const [kind, x, z, yaw] of lineup) {
+        const p = buildSprout(studio, kind);
+        p.position.set(x, 0, z);
+        p.rotation.y = yaw;
+        g.add(p);
+      }
       g.rotation.y = 0.56;
       return g;
     }
