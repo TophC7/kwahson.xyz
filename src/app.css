@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Paper Mono UI", system-ui, sans-serif;
+  --font-mono: "Paper Mono", monospace;
+
+  --color-canvas: #111210;
+  --color-surface: #171916;
+  --color-surface-raised: #1e201c;
+  --color-ink: #d5d7cf;
+  --color-ink-muted: #8a8f84;
+  --color-ink-dim: #5d6258;
+  --color-sage: #7a8d76;
+  --color-sage-soft: #9eb09a;
+  --color-ochre: #9f8665;
+}
+
+@font-face {
+  font-family: "Paper Mono UI";
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  font-feature-settings: "ss01", "ss02", "ss03", "ss04", "cv01", "zero";
+  src: url("./assets/fonts/PaperMono-Variable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Paper Mono";
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  font-feature-settings: "ss01", "ss04", "cv01", "zero";
+  src: url("./assets/fonts/PaperMono-Variable.woff2") format("woff2");
+}
+
+:root {
+  color-scheme: dark;
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+.bg-field-grid {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(213, 215, 207, 0.085) 1px, transparent 0);
+  background-size: 26px 26px;
+}
+
+@keyframes card-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes gentle-pulse {
+  0%, 100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+
+.animate-card-reveal {
+  animation: card-reveal 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--stagger, 0ms);
+}
+
+.animate-gentle-pulse {
+  animation: gentle-pulse 3.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-card-reveal,
+  .animate-gentle-pulse {
+    animation: none !important;
+  }
+}
