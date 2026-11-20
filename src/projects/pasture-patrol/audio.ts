@@ -1,3 +1,14 @@
+import {
+  MASTER_GAIN,
+  audioContextClass,
+  createMasterBus,
+  createNoiseBuffer,
+  loadMuted,
+  saveMuted,
+  scheduleTone,
+  type ToneOptions,
+} from '../../lib/sfx';
+
 const STORAGE_KEY = 'pasture-patrol-muted';
 const PENTATONIC_CHIMES: [number, number][] = [
   [523.25, 659.25],
@@ -47,37 +58,9 @@ interface AmbientLayers {
   hazardBeamGain: GainNode;
 }
 
-function loadMutedPreference(): boolean {
-  try {
-    return window.localStorage.getItem(STORAGE_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function saveMutedPreference(muted: boolean) {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, muted ? '1' : '0');
-  } catch {
-    // Ignore storage errors in restricted contexts.
-  }
-}
-
-function createNoiseBuffer(ctx: AudioContext, durationSeconds = 2): AudioBuffer {
-  const length = Math.floor(ctx.sampleRate * durationSeconds);
-  const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < length; i++) {
-    data[i] = Math.random() * 2 - 1;
-  }
-  return buffer;
-}
-
 export function createAudio({ onUnlock }: { onUnlock?: () => void } = {}): PastureAudio {
-  const AudioCtx =
-    window.AudioContext ||
-    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  let muted = loadMutedPreference();
+  const AudioCtx = audioContextClass();
+  let muted = loadMuted(STORAGE_KEY);
   let unavailable = !AudioCtx;
 
   let ctx: AudioContext | null = null;
@@ -120,17 +103,7 @@ export function createAudio({ onUnlock }: { onUnlock?: () => void } = {}): Pastu
       if (ctx && ctx.state === 'running') markUnlocked();
     };
 
-    const compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -16;
-    compressor.knee.value = 12;
-    compressor.ratio.value = 4;
-    compressor.attack.value = 0.005;
-    compressor.release.value = 0.15;
-
-    masterGain = ctx.createGain();
-    masterGain.gain.value = muted ? 0 : 0.85;
-    masterGain.connect(compressor);
-    compressor.connect(ctx.destination);
+    masterGain = createMasterBus(ctx, muted);
 
     const ambientGain = ctx.createGain();
     ambientGain.gain.value = active && !hidden ? 1 : 0;
@@ -253,7 +226,7 @@ export function createAudio({ onUnlock }: { onUnlock?: () => void } = {}): Pastu
   function syncPowerState() {
     if (!ctx || !masterGain || !layers || destroyed) return;
     const now = ctx.currentTime;
-    masterGain.gain.setTargetAtTime(muted ? 0 : 0.85, now, 0.035);
+    masterGain.gain.setTargetAtTime(muted ? 0 : MASTER_GAIN, now, 0.035);
     layers.ambientGain.gain.setTargetAtTime(active && !hidden ? 1 : 0, now, 0.07);
   }
 
@@ -282,60 +255,8 @@ export function createAudio({ onUnlock }: { onUnlock?: () => void } = {}): Pastu
     return Boolean(!destroyed && ctx && !muted && !hidden && (ctx.state === 'running' || resumePending));
   }
 
-  function playTone({
-    freq,
-    endFreq = freq,
-    type = 'sine',
-    gain = 0.1,
-    attack = 0.01,
-    duration = 0.16,
-    delay = 0,
-    bus = sfxGain,
-    filterFreq = null,
-    filterEndFreq = null,
-  }: {
-    freq: number;
-    endFreq?: number;
-    type?: OscillatorType;
-    gain?: number;
-    attack?: number;
-    duration?: number;
-    delay?: number;
-    bus?: GainNode | null;
-    filterFreq?: number | null;
-    filterEndFreq?: number | null;
-  }) {
-    if (!ctx || !bus || destroyed) return;
-    const start = ctx.currentTime + delay;
-    const osc = ctx.createOscillator();
-    const env = ctx.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, start);
-    if (endFreq !== freq) {
-      osc.frequency.exponentialRampToValueAtTime(Math.max(20, endFreq), start + duration);
-    }
-
-    env.gain.setValueAtTime(0.0001, start);
-    env.gain.linearRampToValueAtTime(gain, start + attack);
-    env.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-
-    if (filterFreq) {
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'bandpass';
-      filter.Q.value = 2.2;
-      filter.frequency.setValueAtTime(filterFreq, start);
-      if (filterEndFreq && filterEndFreq !== filterFreq) {
-        filter.frequency.exponentialRampToValueAtTime(Math.max(40, filterEndFreq), start + duration);
-      }
-      osc.connect(filter);
-      filter.connect(env);
-    } else {
-      osc.connect(env);
-    }
-
-    env.connect(bus);
-    osc.start(start);
-    osc.stop(start + duration + 0.03);
+  function playTone({ bus = sfxGain, ...opts }: ToneOptions & { bus?: GainNode | null }) {
+    if (ctx && bus && !destroyed) scheduleTone(ctx, bus, opts);
   }
 
   function playNoiseBurst({
@@ -436,7 +357,7 @@ export function createAudio({ onUnlock }: { onUnlock?: () => void } = {}): Pastu
     isLocked: () => !unavailable && !muted && !unlocked,
     setMuted(next) {
       muted = Boolean(next);
-      saveMutedPreference(muted);
+      saveMuted(STORAGE_KEY, muted);
       if (!muted) unlock(true);
       syncPowerState();
       return muted;
