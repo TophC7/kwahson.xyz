@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ArrowLeft02Icon } from '@hugeicons/core-free-icons';
-  import Icon from './components/Icon.svelte';
+  import Button from './components/ui/Button.svelte';
   import TopBar from './components/TopBar.svelte';
   import Home from './components/Home.svelte';
   import { router } from './lib/router.svelte';
@@ -49,12 +49,7 @@
           <div class="max-w-sm rounded-md border border-ink/12 bg-surface p-6 text-center">
             <p class="font-mono text-xs text-ochre uppercase">Load Error</p>
             <p class="mt-2 text-sm text-ink-muted">Could not load this project.</p>
-            <a
-              href="/"
-              class="mt-4 inline-block rounded-sm border border-ink/14 bg-surface-raised px-3 py-1.5 font-mono text-xs text-ink hover:border-sage/40"
-            >
-              Back home
-            </a>
+            <Button href="/" variant="surface" size="sm" class="mt-4">Back home</Button>
           </div>
         </div>
       {/await}
@@ -66,13 +61,9 @@
           <p class="mt-2 text-sm text-ink-muted">
             Either it moved or it hasn't been built yet.
           </p>
-          <a
-            href="/"
-            class="mt-5 inline-flex items-center gap-1.5 rounded-sm border border-ink/14 bg-surface-raised px-3.5 py-1.5 font-mono text-xs text-ink transition-colors hover:border-sage/40"
-          >
-            <Icon icon={ArrowLeft02Icon} size={13} strokeWidth={1.9} />
-            <span>Back to kwahson.xyz</span>
-          </a>
+          <Button href="/" variant="surface" size="sm" icon={ArrowLeft02Icon} iconSize={13} class="mt-5">
+            Back to kwahson.xyz
+          </Button>
         </div>
       </div>
     {/if}

@@ -25,8 +25,10 @@ export interface BoardCameraOptions {
   chrome: Element[];
   insets(width: number, height: number): Insets;
   signal: AbortSignal;
-  onTap(clientX: number, clientY: number): void;
+  onTap(clientX: number, clientY: number, event: PointerEvent): void;
   onHover?(clientX: number, clientY: number, event: PointerEvent): void;
+  /** Single-pointer drag while unzoomed (when the board is not panning). */
+  onDrag?(dx: number, dy: number, event: PointerEvent): void;
   onPress?(event: PointerEvent): void;
   onRelease?(): void;
   onZoomedChange(zoomed: boolean): void;
@@ -179,13 +181,18 @@ export function createBoardCamera(options: BoardCameraOptions): BoardCamera {
 
         if (activePointers.size === 1) {
           const moveDist = Math.hypot(e.clientX - downX, e.clientY - downY);
-          if (moveDist > 9 && targetZoom > 1.04) {
-            dragged = true;
-            screenDeltaToWorldPan(e.clientX - lastPanX, e.clientY - lastPanY);
+          if (targetZoom > 1.04) {
+            if (moveDist > 9) {
+              dragged = true;
+              screenDeltaToWorldPan(e.clientX - lastPanX, e.clientY - lastPanY);
+              lastPanX = e.clientX;
+              lastPanY = e.clientY;
+            }
+          } else {
+            if (moveDist > 14) dragged = true;
+            options.onDrag?.(e.clientX - lastPanX, e.clientY - lastPanY, e);
             lastPanX = e.clientX;
             lastPanY = e.clientY;
-          } else if (moveDist > 14) {
-            dragged = true;
           }
         }
         return;
@@ -201,7 +208,7 @@ export function createBoardCamera(options: BoardCameraOptions): BoardCamera {
     const wasSingle = activePointers.size === 1;
     if (!activePointers.delete(e.pointerId)) return;
     if (e.type === 'pointerup' && wasSingle && !dragged && e.button !== 2) {
-      options.onTap(e.clientX, e.clientY);
+      options.onTap(e.clientX, e.clientY, e);
     }
     if (activePointers.size === 1) {
       for (const remaining of activePointers.values()) {

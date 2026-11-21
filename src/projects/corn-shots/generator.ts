@@ -3,9 +3,7 @@ import {
   BOARD_HALF_H,
   BOARD_HALF_W,
   MAX_BOUNCES,
-  SHELL_RADIUS,
   cloneRoomState,
-  resolvePumpkinExplosion,
   traceRay,
   yawForDir,
   type ObstacleDef,
@@ -42,7 +40,7 @@ const ANGLE_STEPS = 720; // 0.5 deg resolution
 const STEP_RAD = (Math.PI * 2) / ANGLE_STEPS;
 const MIN_WINDOW_DEG = 1.5;
 
-export function mixSeed(baseSeed: number, roomIndex: number): number {
+function mixSeed(baseSeed: number, roomIndex: number): number {
   let h = (baseSeed ^ Math.imul(roomIndex + 1, 0x9e3779b1)) >>> 0;
   h = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0;
   h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
@@ -591,6 +589,3 @@ export function generateRoom(baseSeed: number, roomIndex: number): GeneratedRoom
     hasMovingObstacle: false,
   };
 }
-
-/** Preload helper exported for room diagnostics. */
-export { SHELL_RADIUS, resolvePumpkinExplosion };

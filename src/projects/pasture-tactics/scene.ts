@@ -3,9 +3,9 @@ import { isGameKey } from '../../lib/hotkeys';
 import { scoped } from '../../lib/scope';
 import { createBoardCamera, type Insets } from '../../lib/boardCamera';
 import { createBursts } from '../../lib/bursts';
-import { buildMiniature, createStudioBuilder, createStudioStage, frameModel, type MiniatureId } from '../../lib/miniatures';
+import { createModelCache, createStudioBuilder, createStudioStage, fitModel, frameModel, type MiniatureId } from '../../lib/miniatures';
 import { createPastureKit } from '../../lib/pastureKit';
-import { addTableLights, buildPastureTable } from '../../lib/pastureTable';
+import { addTableLights, buildPastureTable, createPastureRenderer } from '../../lib/pastureTable';
 import { randomSeed } from '../../lib/rng';
 import { createTacticsAudio } from './audio';
 import { COLS, ROWS, HEROES, ENEMIES, ITEMS, PROPS, type Difficulty, type HeroKind, type ItemKind } from './data';
@@ -89,38 +89,26 @@ function removeSprite(sprite: THREE.Sprite) {
 export function mountPastureTactics({ viewport, onState, insets, chrome, onEndTurnKey }: {
   viewport: HTMLElement; onState: (patch: Partial<TacticsHudState>) => void; insets: () => Insets; chrome: Element[]; onEndTurnKey: () => void;
 }): TacticsController {
-  return scoped(({ signal, add, dispose }) => {
+  return scoped((scope) => {
+    const { signal, add, dispose } = scope;
     // ponytail: the viewing angle is fixed at mount; rotating the device keeps it until reload.
     const { offset: camOffset, yaw } = cameraFor(viewport.clientWidth, viewport.clientHeight);
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.shadowMap.enabled = true;
-    viewport.appendChild(renderer.domElement);
-    add(() => { renderer.dispose(); renderer.domElement.remove(); });
+    const renderer = createPastureRenderer(viewport, scope, { shadows: true });
     const kit = createPastureKit(), studio = createStudioBuilder(kit), audio = createTacticsAudio();
     add(kit.dispose, studio.dispose, audio.destroy);
     const scene = new THREE.Scene(), table = new THREE.Group(), pieces = new THREE.Group(), effects = new THREE.Group();
     scene.add(table, pieces, effects);
-    add(addTableLights(scene, 10));
+    add(addTableLights(scene, 10).dispose);
     buildPastureTable(kit, table, { cx: 0, cz: 0, spanX: COLS * TILE + 3.2, spanZ: ROWS * TILE + 1.2, checker: false });
-    const templates = new Map<MiniatureId, THREE.Group>();
+    const cachedModel = createModelCache(studio);
     function modelFor(id: MiniatureId) {
-      let template = templates.get(id);
-      if (!template) { template = buildMiniature(studio, id); templates.set(id, template); }
-      return template.clone();
-    }
-    function sizedModel(id: MiniatureId, width: number, maxHeight = Infinity) {
-      const child = modelFor(id);
-      child.rotation.set(0, 0, 0);
-      const box = new THREE.Box3().setFromObject(child), size = box.getSize(new THREE.Vector3());
-      const scale = Math.min(width / Math.max(size.x, size.z), maxHeight / size.y);
-      child.position.sub(new THREE.Vector3((box.max.x + box.min.x) / 2, box.min.y, (box.max.z + box.min.z) / 2));
+      const child = cachedModel(id);
       child.traverse(node => { if (node instanceof THREE.Mesh) node.castShadow = true; });
-      const model = new THREE.Group(); model.add(child); model.scale.setScalar(scale);
-      return { model, scale, height: size.y * scale };
+      return child;
     }
     const margin = COLS / 2 + 0.8, halfDepth = ROWS / 2;
     for (const [id, x, z] of [['windmill', -margin, 1 - halfDepth], ['well', margin, halfDepth - 1.5], ['season-autumn', margin, 1.5 - halfDepth], ['season-spring', -margin, halfDepth - 2]] as const) {
-      const { model } = sizedModel(id, 1.2);
+      const { model } = fitModel(modelFor(id), 1.2);
       model.position.set(x * TILE, GROUND, z * TILE); table.add(model);
     }
     const planeGeo = studio.track(new THREE.PlaneGeometry(TILE - 0.06, TILE - 0.06).rotateX(-Math.PI / 2));
@@ -163,7 +151,7 @@ export function mountPastureTactics({ viewport, onState, insets, chrome, onEndTu
       const i = tileIndex({ x, y }), old = eggs.get(i);
       if (!on) { old?.removeFromParent(); eggs.delete(i); }
       else if (!old) {
-        const { model } = sizedModel('egg', 0.5 * TILE);
+        const { model } = fitModel(modelFor('egg'), 0.5 * TILE);
         model.position.copy(tileCenter(x, y)); pieces.add(model); eggs.set(i, model);
       }
     }
@@ -237,8 +225,8 @@ export function mountPastureTactics({ viewport, onState, insets, chrome, onEndTu
       const info = INFO[e.kind];
       // Units fit their largest dimension so tall models can't outgrow wide ones; props fit their footprint.
       const { model, scale: baseScale, height } = 'size' in info
-        ? sizedModel(info.model, TILE * info.size, TILE * info.size)
-        : sizedModel(info.model, TILE * (e.kind === 'barn' ? 0.95 : e.kind === 'crop' ? 0.6 : 0.86), (e.kind === 'crop' ? 0.75 : 1.25) * TILE);
+        ? fitModel(modelFor(info.model), TILE * info.size, TILE * info.size)
+        : fitModel(modelFor(info.model), TILE * (e.kind === 'barn' ? 0.95 : e.kind === 'crop' ? 0.6 : 0.86), (e.kind === 'crop' ? 0.75 : 1.25) * TILE);
       const holder = new THREE.Group(), pips = canvasSprite(BAR_W * 2, BAR_H * 2), hit = new THREE.Mesh(hitGeo, hitMat);
       const hover = e.kind === 'bee' || e.kind === 'duck' ? 0.35 : e.kind === 'saucer' ? 0.8 : 0;
       model.position.y = hover; pips.position.y = hover + height + 0.16; pips.scale.set(2.2, 2.2 * BAR_H / BAR_W, 1);
@@ -285,9 +273,9 @@ export function mountPastureTactics({ viewport, onState, insets, chrome, onEndTu
     const inspectMove = new Set<number>(), inspectAttack = new Set<number>();
     try { showDanger = localStorage.getItem(DANGER_KEY) === 'true'; } catch { /* Storage is optional. */ }
     let busy = false, enemyPhase = false, hinted = false, generation = 0, code = '';
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reduceMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const playback = createPlayback({ tileCenter, visual: id => visuals.get(id), addEntity, removeEntity, setEgg,
-      floatText, redrawPips, effects, kit, bursts, audio, model: (id, footprint) => sizedModel(id, footprint).model,
+      floatText, redrawPips, effects, kit, bursts, audio, model: (id, footprint) => fitModel(modelFor(id), footprint).model,
       onPhase(phase) {
         // The first enemy phase teaches fast-forward instead of naming the phase.
         if (phase === 'player') setStatus('Your turn');

@@ -1,20 +1,68 @@
 import * as THREE from 'three';
 import { PASTURE_HEMI_GROUND, PASTURE_HEMI_SKY, PASTURE_SUN_COLOR, type PartKind, type PastureKit } from './pastureKit';
+import type { Scope } from './scope';
+
+export interface PastureRendererOptions {
+  shadows?: boolean;
+}
+
+/** Shared WebGLRenderer setup with capped DPR, optional standard shadows, and scope teardown. */
+export function createPastureRenderer(
+  container: HTMLElement,
+  scope: Scope,
+  { shadows = false }: PastureRendererOptions = {},
+): THREE.WebGLRenderer {
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  if (shadows) renderer.shadowMap.enabled = true;
+  container.appendChild(renderer.domElement);
+  scope.add(() => {
+    renderer.dispose();
+    renderer.domElement.remove();
+  });
+  return renderer;
+}
+
+export interface TableLightsOptions {
+  hemiSky?: number;
+  hemiGround?: number;
+  hemiIntensity?: number;
+  sunColor?: number;
+  sunIntensity?: number;
+  sunPos?: [number, number, number];
+  fillColor?: number;
+  fillIntensity?: number;
+  shadowSpan?: number;
+  shadowFar?: number;
+}
+
+export interface TableLights {
+  hemi: THREE.HemisphereLight;
+  sun: THREE.DirectionalLight;
+  fill: THREE.DirectionalLight;
+  dispose(): void;
+}
 
 /** Warm light over the table; sunZ picks which way shadows fall. */
-export function addTableLights(scene: THREE.Object3D, sunZ: number): () => void {
-  const sun = new THREE.DirectionalLight(PASTURE_SUN_COLOR, 2.4);
-  sun.position.set(-9, 22, sunZ);
+export function addTableLights(scene: THREE.Object3D, sunZ: number, opts: TableLightsOptions = {}): TableLights {
+  const hemi = new THREE.HemisphereLight(
+    opts.hemiSky ?? PASTURE_HEMI_SKY,
+    opts.hemiGround ?? PASTURE_HEMI_GROUND,
+    opts.hemiIntensity ?? 2.05,
+  );
+  const sun = new THREE.DirectionalLight(opts.sunColor ?? PASTURE_SUN_COLOR, opts.sunIntensity ?? 2.4);
+  sun.position.set(...(opts.sunPos ?? [-9, 22, sunZ]));
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
-  Object.assign(sun.shadow.camera, { near: 2, far: 48, left: -12, right: 12, top: 12, bottom: -12 });
+  const span = opts.shadowSpan ?? 12;
+  Object.assign(sun.shadow.camera, { near: 2, far: opts.shadowFar ?? 48, left: -span, right: span, top: span, bottom: -span });
   sun.shadow.camera.updateProjectionMatrix();
   sun.shadow.bias = -0.0005;
   sun.shadow.normalBias = 0.025;
-  const fill = new THREE.DirectionalLight(0xd8e8d6, 0.55);
+  const fill = new THREE.DirectionalLight(opts.fillColor ?? 0xd8e8d6, opts.fillIntensity ?? 0.55);
   fill.position.set(10, 12, -8);
-  scene.add(new THREE.HemisphereLight(PASTURE_HEMI_SKY, PASTURE_HEMI_GROUND, 2.05), sun, fill);
-  return () => sun.shadow.dispose();
+  scene.add(hemi, sun, fill);
+  return { hemi, sun, fill, dispose: () => sun.shadow.dispose() };
 }
 
 export interface PastureTablePalette {

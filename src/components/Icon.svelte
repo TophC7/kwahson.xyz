@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  type IconData = readonly (readonly [string, Readonly<Record<string, string | number>>])[];
+  export type IconData = readonly (readonly [string, Readonly<Record<string, string | number>>])[];
 
   const kebab = (key: string) => key.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
 </script>

@@ -97,17 +97,7 @@ export function createMoojongAudio(): MoojongAudio {
         tone({ freq: freq * 0.5, type: 'sine', gain: 0.05, duration: 0.44, delay: i * 0.085 });
       });
     },
-    playUiClick(bright = true) {
-      if (!ready()) return;
-      tone({
-        freq: bright ? 660 : 480,
-        endFreq: bright ? 740 : 420,
-        type: 'sine',
-        gain: 0.055,
-        attack: 0.004,
-        duration: 0.055,
-      });
-    },
+    playUiClick: sfx.playUiClick,
     destroy: sfx.destroy,
   };
 }

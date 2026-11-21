@@ -24,7 +24,9 @@
 <script lang="ts">
   import { RefreshIcon } from '@hugeicons/core-free-icons';
   import FieldBackground from '../../components/FieldBackground.svelte';
-  import Icon from '../../components/Icon.svelte';
+  import Button from '../../components/ui/Button.svelte';
+  import ModalDialog from '../../components/ui/ModalDialog.svelte';
+  import SegmentedControl, { type SegmentedOption } from '../../components/ui/SegmentedControl.svelte';
   import {
     BOARD_SIZES,
     canPlay,
@@ -65,14 +67,20 @@
     },
   ] as const;
 
-  const LAYOUT_ENTRIES = Object.entries(BOARD_SIZES) as [LayoutKey, (typeof BOARD_SIZES)[LayoutKey]][];
+  const LAYOUT_OPTIONS: SegmentedOption<LayoutKey>[] = (
+    Object.entries(BOARD_SIZES) as [LayoutKey, (typeof BOARD_SIZES)[LayoutKey]][]
+  ).map(([value, spec]) => ({
+    value,
+    label: spec.label,
+    suffix: spec.count,
+  }));
 
-  const MODE_OPTIONS: { value: GameMode; label: string }[] = [
+  const MODE_OPTIONS: SegmentedOption<GameMode>[] = [
     { value: 'friend', label: '2P' },
     { value: 'computer', label: 'CPU' },
   ];
 
-  const SPEED_OPTIONS: { value: SpeedMs; label: string }[] = [
+  const SPEED_OPTIONS: SegmentedOption<SpeedMs>[] = [
     { value: 280, label: 'Normal' },
     { value: 100, label: 'Fast' },
     { value: 0, label: 'Instant' },
@@ -87,9 +95,7 @@
   }
 
   let boardEl = $state<SVGSVGElement | null>(null);
-  let mobileRestartBtnEl = $state<HTMLButtonElement | null>(null);
-  let desktopRestartBtnEl = $state<HTMLButtonElement | null>(null);
-  let restartDialogEl = $state<HTMLDialogElement | null>(null);
+  let restartBtnEl = $state<HTMLButtonElement | HTMLAnchorElement>();
 
   let gameLayout = $state<LayoutKey>('medium');
   let gameMode = $state<GameMode>('friend');
@@ -109,13 +115,20 @@
   let activeBurst = $state.raw<BurstSpec | null>(null);
   let burstProgress = $state(0);
 
-  let pendingGame: { layout: LayoutKey; mode: GameMode } | null = null;
+  let pendingGame = $state<{ layout: LayoutKey; mode: GameMode } | null>(null);
   let generation = 0;
   let computerTimer: ReturnType<typeof setTimeout> | null = null;
   let cancelBurst: (() => void) | null = null;
 
   const effectiveSpeed = $derived<SpeedMs>(reducedMotion ? 0 : speed);
   const computerTurn = $derived(gameMode === 'computer' && turn === 1);
+  const speedControlOptions = $derived<SegmentedOption<SpeedMs>[]>(
+    SPEED_OPTIONS.map((opt) => ({
+      ...opt,
+      disabled: reducedMotion && opt.value !== 0,
+      title: reducedMotion && opt.value !== 0 ? 'Disabled while reduced motion is enabled' : undefined,
+    })),
+  );
 
   const legalIds = $derived.by(() => {
     if (busy || winner !== null || computerTurn) return new Set<number>();
@@ -227,10 +240,6 @@
     targetEl?.focus({ preventScroll: true });
   }
 
-  function focusVisibleRestartButton() {
-    [desktopRestartBtnEl, mobileRestartBtnEl].find((b) => b?.offsetParent)?.focus({ preventScroll: true });
-  }
-
   function handleRegionKey(event: KeyboardEvent, from: Region) {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
@@ -323,7 +332,7 @@
 
     if (hadBoardFocus && keyboardMode) {
       if (winner !== null) {
-        focusVisibleRestartButton();
+        restartBtnEl?.focus({ preventScroll: true });
       } else if (nextLegal.length) {
         queueMicrotask(() => focusRegion(activeRegion));
       }
@@ -338,18 +347,16 @@
       return;
     }
     pendingGame = { layout: nextLayout, mode: nextMode };
-    if (restartDialogEl) {
-      restartDialogEl.returnValue = 'cancel';
-      restartDialogEl.showModal();
-    }
   }
 
-  function handleDialogClose() {
+  function cancelPendingGame() {
+    pendingGame = null;
+  }
+
+  function confirmPendingGame() {
     const pending = pendingGame;
     pendingGame = null;
-    if (restartDialogEl?.returnValue === 'restart' && pending) {
-      newGame(pending.layout, pending.mode);
-    }
+    if (pending) newGame(pending.layout, pending.mode);
   }
 
   $effect(() => {
@@ -391,49 +398,6 @@
   });
 </script>
 
-{#snippet pillGroup<T extends string | number>(
-  label: string,
-  ariaLabel: string,
-  items: { value: T; label: string; suffix?: number; disabled?: boolean; title?: string }[],
-  selected: T,
-  onSelect: (value: T) => void,
-  padClass: string,
-)}
-  <div class="flex items-center justify-between gap-2" role="group" aria-label={ariaLabel}>
-    <span class="font-mono text-[10px] tracking-wider text-ink-dim uppercase">{label}</span>
-    <div class="inline-flex rounded-sm border border-ink/10 bg-canvas p-0.5">
-      {#each items as opt}
-        <button
-          type="button"
-          disabled={opt.disabled}
-          title={opt.title}
-          aria-pressed={selected === opt.value}
-          onclick={() => onSelect(opt.value)}
-          class="focus-ring rounded-[3px] {padClass} py-1 font-mono text-[11px] transition-colors {selected === opt.value
-            ? 'bg-surface-raised text-ink'
-            : opt.disabled
-              ? 'cursor-not-allowed text-ink-dim/40'
-              : 'cursor-pointer text-ink-dim hover:text-ink-muted'}"
-        >
-          {opt.label}{#if opt.suffix !== undefined}<span class="ml-1 opacity-60">{opt.suffix}</span>{/if}
-        </button>
-      {/each}
-    </div>
-  </div>
-{/snippet}
-
-{#snippet status(cls: string)}
-  <div
-    role="status"
-    aria-live="polite"
-    aria-atomic="true"
-    class="{cls} font-semibold tracking-tight"
-    style="color: {PLAYERS[winner ?? turn].bright};"
-  >
-    {statusText}
-  </div>
-{/snippet}
-
 <div class="relative min-h-full bg-canvas text-ink lg:h-full lg:overflow-hidden">
   <FieldBackground />
 
@@ -441,40 +405,8 @@
     class="relative mx-auto flex min-h-full max-w-[1160px] flex-col gap-3 px-3 py-3 sm:px-5 sm:py-4 lg:h-full lg:flex-row lg:items-center lg:gap-5 lg:py-5"
     style="padding-bottom: max(16px, env(safe-area-inset-bottom));"
   >
-    <!-- Mobile compact status header (above board on small screens; desktop shows this in the right rail) -->
-    <div
-      class="flex items-center justify-between gap-2 rounded-md border border-ink/10 bg-surface px-3 py-2 lg:hidden"
-    >
-      <div class="min-w-0">
-        {@render status('text-sm')}
-        <p class="m-0 truncate text-[11px] text-ink-muted">{message}</p>
-      </div>
-
-      <div class="flex shrink-0 items-center gap-1.5 font-mono text-[11px]">
-        {#each PLAYERS as p, i}
-          <span
-            class="rounded-sm border px-1.5 py-0.5 {winner === null && turn === i
-              ? p.activeBadge
-              : p.idleBadge}"
-          >
-            {p.short} <strong>{playerCounts[i]}</strong>
-          </span>
-        {/each}
-        <button
-          bind:this={mobileRestartBtnEl}
-          type="button"
-          title="New game"
-          aria-label="New game"
-          onclick={() => requestNewGame()}
-          class="focus-ring inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-sm border border-sage/45 bg-sage/18 text-ink"
-        >
-          <Icon icon={RefreshIcon} size={13} strokeWidth={1.9} />
-        </button>
-      </div>
-    </div>
-
     <!-- Primary Board Stage: container-query square auto-fits both width and height cleanly in Firefox & Chromium -->
-    <div class="bammi-stage-wrap flex min-h-0 min-w-0 flex-1 items-center justify-center lg:h-full lg:self-stretch">
+    <div class="bammi-stage-wrap order-2 flex min-h-0 min-w-0 flex-1 items-center justify-center lg:order-1 lg:h-full lg:self-stretch">
       <div
         class="bammi-stage relative overflow-hidden rounded-md border border-ink/16 bg-[#151714] shadow-[0_24px_60px_-32px_rgba(0,0,0,0.9)]"
       >
@@ -592,137 +524,150 @@
       </div>
     </div>
 
-    <!-- Side Rail on desktop / Compact bottom deck on mobile -->
+    <!-- Side Rail on desktop / Split header + bottom deck on mobile via contents -->
     <aside
-      class="flex shrink-0 flex-col overflow-hidden rounded-md border border-ink/10 bg-surface lg:max-h-full lg:w-[320px] lg:overflow-y-auto"
+      class="contents lg:order-2 lg:flex lg:max-h-full lg:w-[320px] lg:shrink-0 lg:flex-col lg:overflow-y-auto lg:rounded-md lg:border lg:border-ink/10 lg:bg-surface"
     >
-      <!-- Desktop Title + New Game -->
+      <!-- Unified Status Header (above board on mobile; top of rail on desktop) -->
       <div
-        class="hidden items-center justify-between gap-3 border-b border-ink/8 px-4 py-3.5 lg:flex"
+        class="order-1 grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2 rounded-md border border-ink/10 bg-surface px-3 py-2 lg:order-none lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-x-0 lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
       >
-        <div>
+        <div class="hidden lg:col-start-1 lg:row-start-1 lg:block lg:border-b lg:border-ink/8 lg:py-3.5 lg:pl-4">
           <h1 class="m-0 text-xl font-semibold tracking-[-0.025em] text-ink">
             Bammi<span class="text-ochre">.</span>
           </h1>
           <p class="mt-0.5 m-0 text-[11.5px] text-ink-dim">Exploding pies</p>
         </div>
 
-        <button
-          bind:this={desktopRestartBtnEl}
-          type="button"
-          title="Start over with a newly randomized board"
-          onclick={() => requestNewGame()}
-          class="focus-ring inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-sm border border-sage/45 bg-sage/18 px-3 font-mono text-[11px] font-medium text-ink transition-colors hover:border-sage/70 hover:bg-sage/28"
+        <div class="col-start-3 row-start-1 lg:col-start-2 lg:row-start-1 lg:flex lg:items-center lg:border-b lg:border-ink/8 lg:py-3.5 lg:pr-4">
+          <Button
+            bind:ref={restartBtnEl}
+            variant="primary"
+            size="sm"
+            icon={RefreshIcon}
+            iconSize={13}
+            title="Start over with a newly randomized board"
+            aria-label="New game"
+            onclick={() => requestNewGame()}
+          >
+            <span class="hidden lg:inline">New game</span>
+          </Button>
+        </div>
+
+        <div class="col-start-1 row-start-1 min-w-0 lg:col-span-2 lg:col-start-1 lg:row-start-2 lg:px-4 lg:pt-3.5">
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            class="text-sm font-semibold tracking-tight lg:text-base"
+            style="color: {PLAYERS[winner ?? turn].bright};"
+          >
+            {statusText}
+          </div>
+          <p class="m-0 max-lg:truncate text-[11px] text-ink-muted lg:mt-1 lg:mb-3 lg:min-h-[2.4em] lg:text-xs lg:leading-relaxed">
+            {message}
+          </p>
+        </div>
+
+        <div
+          class="col-start-2 row-start-1 flex shrink-0 items-center gap-1.5 font-mono text-[11px] lg:col-span-2 lg:col-start-1 lg:row-start-3 lg:grid lg:grid-cols-2 lg:gap-2 lg:border-b lg:border-ink/8 lg:px-4 lg:pb-3.5 lg:text-xs"
+          aria-label="Regions owned by each player"
         >
-          <Icon icon={RefreshIcon} size={13} strokeWidth={1.9} />
-          <span>New game</span>
-        </button>
-      </div>
-
-      <!-- Desktop Turn + Scores -->
-      <div class="hidden border-b border-ink/8 px-4 py-3.5 lg:block">
-        {@render status('text-base')}
-        <p class="mt-1 mb-3 min-h-[2.4em] text-xs leading-relaxed text-ink-muted">{message}</p>
-
-        <div class="grid grid-cols-2 gap-2 font-mono text-xs" aria-label="Regions owned by each player">
           {#each PLAYERS as p, i}
             <div
               aria-label="{p.flavor[0].toUpperCase()}{p.flavor.slice(1)} owns {playerCounts[i]} of {regions.length} regions"
-              class="flex items-baseline justify-between rounded-sm border px-2.5 py-2 transition-all {winner === null && turn === i
+              class="flex items-baseline justify-between rounded-sm border px-1.5 py-0.5 transition-all lg:px-2.5 lg:py-2 {winner === null && turn === i
                 ? p.activeBadge
                 : p.idleBadge}"
             >
-              <span>{p.name}</span>
-              <span><strong>{playerCounts[i]}</strong>/{regions.length}</span>
+              <span class="lg:hidden">{p.short}&nbsp;</span>
+              <span class="hidden lg:inline">{p.name}</span>
+              <span><strong>{playerCounts[i]}</strong><span class="hidden lg:inline">/{regions.length}</span></span>
             </div>
           {/each}
         </div>
       </div>
 
-      <!-- Always-visible compact controls -->
-      <div class="grid gap-2.5 border-b border-ink/8 bg-canvas/35 px-3.5 py-3 sm:px-4">
-        {@render pillGroup(
-          'Size',
-          'Board size',
-          LAYOUT_ENTRIES.map(([key, spec]) => ({ value: key, label: spec.label, suffix: spec.count })),
-          gameLayout,
-          (v) => v !== gameLayout && requestNewGame(v),
-          'px-2',
-        )}
-        {@render pillGroup(
-          'Mode',
-          'Opponent mode',
-          MODE_OPTIONS,
-          gameMode,
-          (v) => v !== gameMode && requestNewGame(gameLayout, v),
-          'px-2.5',
-        )}
-        {@render pillGroup(
-          'Speed',
-          'Animation speed',
-          SPEED_OPTIONS.map((opt) => ({
-            ...opt,
-            disabled: reducedMotion && opt.value !== 0,
-            title: reducedMotion && opt.value !== 0 ? 'Disabled while reduced motion is enabled' : undefined,
-          })),
-          effectiveSpeed,
-          (value) => (speed = value),
-          'px-2',
-        )}
+      <!-- Compact Controls + Rules Deck -->
+      <div
+        class="order-3 overflow-hidden rounded-md border border-ink/10 bg-surface lg:order-none lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent"
+      >
+        <div class="grid gap-2.5 border-b border-ink/8 bg-canvas/35 px-3.5 py-3 sm:px-4">
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-mono text-[10px] tracking-wider text-ink-dim uppercase">Size</span>
+            <SegmentedControl
+              variant="inset"
+              ariaLabel="Board size"
+              options={LAYOUT_OPTIONS}
+              value={gameLayout}
+              onChange={(v) => v !== gameLayout && requestNewGame(v)}
+            />
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-mono text-[10px] tracking-wider text-ink-dim uppercase">Mode</span>
+            <SegmentedControl
+              variant="inset"
+              ariaLabel="Opponent mode"
+              options={MODE_OPTIONS}
+              value={gameMode}
+              onChange={(v) => v !== gameMode && requestNewGame(gameLayout, v)}
+            />
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-mono text-[10px] tracking-wider text-ink-dim uppercase">Speed</span>
+            <SegmentedControl
+              variant="inset"
+              ariaLabel="Animation speed"
+              options={speedControlOptions}
+              value={effectiveSpeed}
+              onChange={(value) => (speed = value)}
+            />
+          </div>
+        </div>
+
+        <!-- Concise always-visible rules -->
+        <footer id="bammi-rules-summary" class="px-3.5 py-3 sm:px-4">
+          <div class="grid grid-cols-1 gap-2 text-[11.5px] leading-relaxed text-ink-muted sm:grid-cols-3 lg:grid-cols-1 lg:gap-2.5">
+            {#each RULES as [title, text], i}
+              <div>
+                <span class="font-mono text-[10px] tracking-wider text-sage uppercase">0{i + 1} · {title}</span>
+                <p class="mt-0.5 m-0">{text}</p>
+              </div>
+            {/each}
+          </div>
+
+          <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-ink/6 pt-2.5 font-mono text-[10px] text-ink-dim">
+            <span>B = Blue · R = Red</span>
+            <a
+              href="https://www.bammi.com/about.asp"
+              target="_blank"
+              rel="noopener"
+              class="focus-ring rounded-xs text-ink-muted underline underline-offset-3 hover:text-ink"
+            >
+              Original rules
+            </a>
+          </div>
+        </footer>
       </div>
-
-      <!-- Concise always-visible rules -->
-      <footer id="bammi-rules-summary" class="px-3.5 py-3 sm:px-4">
-        <div class="grid grid-cols-1 gap-2 text-[11.5px] leading-relaxed text-ink-muted sm:grid-cols-3 lg:grid-cols-1 lg:gap-2.5">
-          {#each RULES as [title, text], i}
-            <div>
-              <span class="font-mono text-[10px] tracking-wider text-sage uppercase">0{i + 1} · {title}</span>
-              <p class="mt-0.5 m-0">{text}</p>
-            </div>
-          {/each}
-        </div>
-
-        <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-ink/6 pt-2.5 font-mono text-[10px] text-ink-dim">
-          <span>B = Blue · R = Red</span>
-          <a
-            href="https://www.bammi.com/about.asp"
-            target="_blank"
-            rel="noopener"
-            class="text-ink-muted underline underline-offset-3 hover:text-ink"
-          >
-            Original rules
-          </a>
-        </div>
-      </footer>
     </aside>
   </div>
 
-  <dialog
-    bind:this={restartDialogEl}
-    onclose={handleDialogClose}
-    aria-labelledby="bammi-restart-title"
-    aria-describedby="bammi-restart-desc"
-    class="bammi-dialog"
+  <ModalDialog
+    open={pendingGame !== null}
+    onClose={cancelPendingGame}
+    title="Start a new game?"
+    tone="sage"
+    maxWidth="26.25rem"
   >
-    <h2 id="bammi-restart-title" class="m-0 text-lg font-semibold text-ink">Start a new game?</h2>
-    <p id="bammi-restart-desc" class="mt-2 mb-6 text-sm leading-relaxed text-ink-muted">
+    <p class="m-0 leading-relaxed">
       Your current game will be lost and a freshly randomized board will be generated.
     </p>
-    <form method="dialog" class="flex flex-wrap justify-end gap-2.5">
-      <button
-        value="cancel"
-        class="focus-ring cursor-pointer rounded-sm border border-ink/14 bg-surface-raised px-3.5 py-2 font-mono text-xs text-ink-muted hover:border-ink/28 hover:text-ink"
-      >
-        Keep playing
-      </button>
-      <button
-        value="restart"
-        class="focus-ring cursor-pointer rounded-sm border border-sage/50 bg-sage/20 px-3.5 py-2 font-mono text-xs font-medium text-ink hover:bg-sage/32"
-      >
-        New game
-      </button>
-    </form>
-  </dialog>
+
+    {#snippet actions()}
+      <Button variant="surface" onclick={cancelPendingGame}>Keep playing</Button>
+      <Button variant="primary" onclick={confirmPendingGame}>New game</Button>
+    {/snippet}
+  </ModalDialog>
 </div>
 
 <style>
@@ -787,21 +732,5 @@
     paint-order: stroke;
     stroke: #131512;
     stroke-width: 0.032;
-  }
-
-  .bammi-dialog {
-    margin: auto;
-    width: min(420px, calc(100% - 32px));
-    padding: 22px;
-    background: var(--color-surface);
-    color: var(--color-ink);
-    border: 1px solid rgba(213, 215, 207, 0.16);
-    border-radius: 6px;
-    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.72);
-  }
-
-  .bammi-dialog::backdrop {
-    background: rgba(11, 12, 10, 0.74);
-    backdrop-filter: blur(3px);
   }
 </style>

@@ -13,6 +13,10 @@
   --color-sage: #7a8d76;
   --color-sage-soft: #9eb09a;
   --color-ochre: #9f8665;
+  --color-danger: #b86b58;
+  --color-danger-soft: #d49685;
+  --color-gold: #ffe469;
+  --color-mint: #8ff5cb;
 }
 
 @font-face {
@@ -54,6 +58,14 @@ body,
   background-image:
     radial-gradient(circle at 1px 1px, rgba(213, 215, 207, 0.085) 1px, transparent 0);
   background-size: 26px 26px;
+}
+
+@layer components {
+  .hud-surface {
+    background-color: color-mix(in srgb, var(--color-surface) 85%, transparent);
+    backdrop-filter: blur(12px);
+    border: 1px solid color-mix(in srgb, var(--color-ink) 12%, transparent);
+  }
 }
 
 .focus-ring:focus-visible {

@@ -22,7 +22,7 @@
   href="/{project.slug}"
   onpointermove={handlePointerMove}
   style:--stagger="{index * 75}ms"
-  class="project-card animate-card-reveal group relative flex flex-col overflow-hidden rounded-md border border-ink/9 bg-surface transition-[transform,border-color,box-shadow] duration-300 ease-out hover:-translate-y-1 hover:border-[rgba(148,164,144,0.32)] hover:shadow-[0_18px_40px_-24px_rgba(0,0,0,0.85)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-sage"
+  class="focus-ring project-card animate-card-reveal group relative flex flex-col overflow-hidden rounded-md border border-ink/9 bg-surface transition-[transform,border-color,box-shadow] duration-300 ease-out hover:-translate-y-1 hover:border-[rgba(148,164,144,0.32)] hover:shadow-[0_18px_40px_-24px_rgba(0,0,0,0.85)]"
 >
   <div
     class="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"

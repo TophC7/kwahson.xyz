@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { createBursts } from '../../lib/bursts';
 import { isGameKey } from '../../lib/hotkeys';
-import { buildPastureTable } from '../../lib/pastureTable';
+import { buildPastureTable, createPastureRenderer } from '../../lib/pastureTable';
+import { pick } from '../../lib/rng';
 import { scoped } from '../../lib/scope';
 import {
   createPastureKit,
@@ -133,15 +134,9 @@ export function mountPasturePatrol({
   viewport: HTMLElement;
   onState: (patch: Partial<PastureHudState>) => void;
 }): PastureController {
-  return scoped(({ signal, add, dispose }) => {
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    viewport.appendChild(renderer.domElement);
-    add(() => {
-      renderer.dispose();
-      renderer.domElement.remove();
-    });
+  return scoped((scope) => {
+    const { signal, add, dispose } = scope;
+    const renderer = createPastureRenderer(viewport, scope, { shadows: true });
     renderer.domElement.setAttribute(
       'aria-label',
       'Isometric pasture. Move your cursor or drag a finger to steer the UFO.',
@@ -373,7 +368,7 @@ export function mountPasturePatrol({
           e.lifetime - e.age > 8,
       );
       for (let attempt = 0; attempt < 100 && anchors.length; attempt++) {
-        const anchor = anchors[Math.floor(Math.random() * anchors.length)];
+        const anchor = pick(anchors, Math.random);
         const angle = random(0, Math.PI * 2);
         const distance = random(1.6, 2.0);
         const p = anchor.mesh.position.clone().setY(0);
@@ -461,8 +456,8 @@ export function mountPasturePatrol({
       ) {
         return null;
       }
-      const kinds: ObstacleKind[] = ['rock', 'stump', 'crate'];
-      const resolvedKind = kind || kinds[Math.floor(Math.random() * kinds.length)];
+      const kinds: readonly ObstacleKind[] = ['rock', 'stump', 'crate'];
+      const resolvedKind = kind || pick(kinds, Math.random);
       const { mesh, roller } = makeObstacle(resolvedKind);
       const obstacle = addEntity(mesh);
       if (obstacle) {

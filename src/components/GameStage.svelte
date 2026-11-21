@@ -23,7 +23,7 @@
 {#if failed}
   <div
     role="alert"
-    class="absolute top-1/2 left-1/2 z-50 max-w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-md border border-[#b86b58]/40 bg-surface px-5 py-4 text-center text-sm text-[#d49685]"
+    class="border-danger/40 bg-surface text-danger-soft absolute top-1/2 left-1/2 z-50 max-w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-md border px-5 py-4 text-center text-sm"
   >
     Your browser could not start {what}. Please enable WebGL or try a newer browser.
   </div>

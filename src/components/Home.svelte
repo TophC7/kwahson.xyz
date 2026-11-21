@@ -1,6 +1,7 @@
 <script lang="ts">
   import FieldBackground from './FieldBackground.svelte';
   import ProjectCard from './ProjectCard.svelte';
+  import SegmentedControl from './ui/SegmentedControl.svelte';
   import type { ProjectEntry } from '../projects';
 
   interface Props {
@@ -11,10 +12,12 @@
 
   let selectedCategory = $state<ProjectEntry['category'] | 'all'>('all');
 
-  const categories = $derived.by(() => {
-    const present = new Set(projects.map((p) => p.category));
-    return Array.from(present);
-  });
+  const categories = $derived(Array.from(new Set(projects.map((p) => p.category))));
+
+  const filterOptions = $derived([
+    { value: 'all' as const, label: `All (${projects.length})` },
+    ...categories.map((cat) => ({ value: cat, label: cat })),
+  ]);
 
   const filtered = $derived(
     selectedCategory === 'all'
@@ -42,28 +45,13 @@
       </div>
 
       {#if categories.length > 1}
-        <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter projects">
-          <button
-            type="button"
-            onclick={() => (selectedCategory = 'all')}
-            class="cursor-pointer rounded-sm border px-2.5 py-1 font-mono text-[11px] uppercase transition-colors {selectedCategory === 'all'
-              ? 'border-sage/45 bg-sage/15 text-ink'
-              : 'border-ink/9 bg-surface text-ink-muted hover:border-ink/20 hover:text-ink'}"
-          >
-            All ({projects.length})
-          </button>
-          {#each categories as cat}
-            <button
-              type="button"
-              onclick={() => (selectedCategory = cat)}
-              class="cursor-pointer rounded-sm border px-2.5 py-1 font-mono text-[11px] uppercase transition-colors {selectedCategory === cat
-                ? 'border-sage/45 bg-sage/15 text-ink'
-                : 'border-ink/9 bg-surface text-ink-muted hover:border-ink/20 hover:text-ink'}"
-            >
-              {cat}
-            </button>
-          {/each}
-        </div>
+        <SegmentedControl
+          options={filterOptions}
+          value={selectedCategory}
+          onChange={(v) => (selectedCategory = v)}
+          ariaLabel="Filter projects"
+          class="[&_button]:uppercase"
+        />
       {/if}
     </section>
 
@@ -84,7 +72,7 @@
           href="https://toph.cc"
           target="_blank"
           rel="noreferrer"
-          class="text-ink-muted underline underline-offset-3 transition-colors hover:text-ink"
+          class="focus-ring rounded-xs text-ink-muted underline underline-offset-3 transition-colors hover:text-ink"
         >
           Toph
         </a>

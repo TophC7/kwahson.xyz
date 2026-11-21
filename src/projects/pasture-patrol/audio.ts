@@ -1,3 +1,4 @@
+import { pick } from '../../lib/rng';
 import { createSfxEngine, type NoiseOptions, type ToneOptions } from '../../lib/sfx';
 
 const STORAGE_KEY = 'pasture-patrol-muted';
@@ -169,7 +170,7 @@ export function createAudio({ onUnlock }: { onUnlock?: () => void } = {}): Pastu
   }
 
   function playAlienNightWarble(audioCtx: AudioContext, bus: GainNode) {
-    const [a, b, c] = ALIEN_GLIDES[Math.floor(Math.random() * ALIEN_GLIDES.length)];
+    const [a, b, c] = pick(ALIEN_GLIDES, Math.random);
     const start = audioCtx.currentTime;
     const osc = audioCtx.createOscillator();
     const lfo = audioCtx.createOscillator();
@@ -258,7 +259,7 @@ export function createAudio({ onUnlock }: { onUnlock?: () => void } = {}): Pastu
     },
     playCowCollect() {
       if (!sfx.live()) return;
-      const [root, fifth] = PENTATONIC_CHIMES[Math.floor(Math.random() * PENTATONIC_CHIMES.length)];
+      const [root, fifth] = pick(PENTATONIC_CHIMES, Math.random);
       const jitter = 0.985 + Math.random() * 0.03;
       playTone({ freq: 240 * jitter, endFreq: 540 * jitter, type: 'sine', gain: 0.09, attack: 0.006, duration: 0.09 });
       playTone({ freq: root * jitter, type: 'triangle', gain: 0.1, attack: 0.008, duration: 0.15, delay: 0.02 });
@@ -387,17 +388,7 @@ export function createAudio({ onUnlock }: { onUnlock?: () => void } = {}): Pastu
       playTone({ freq: 392, endFreq: 196, type: 'triangle', gain: 0.12, attack: 0.02, duration: 0.72 });
       playTone({ freq: 293.66, endFreq: 130.81, type: 'sine', gain: 0.11, attack: 0.02, duration: 0.82, delay: 0.06 });
     },
-    playUiClick(bright = true) {
-      if (!sfx.ready()) return;
-      playTone({
-        freq: bright ? 660 : 480,
-        endFreq: bright ? 740 : 420,
-        type: 'sine',
-        gain: 0.06,
-        attack: 0.004,
-        duration: 0.055,
-      });
-    },
+    playUiClick: sfx.playUiClick,
     destroy() {
       layers = null;
       tractorBus = null;

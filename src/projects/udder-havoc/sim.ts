@@ -14,9 +14,9 @@ import {
 } from './data';
 
 export const ARENA_HALF = 12.2;
-export const COW_RADIUS = 0.56;
-export const CHARGE_FULL_SEC = 0.72;
-export const CHARGE_MIN_RELEASE = 0.22;
+const COW_RADIUS = 0.56;
+const CHARGE_FULL_SEC = 0.72;
+const CHARGE_MIN_RELEASE = 0.22;
 
 export type ObstacleModelKind = 'hay' | 'crate' | 'rock' | 'stump' | 'corn-wall' | 'barn' | 'silo' | 'well';
 
@@ -83,7 +83,7 @@ export interface SimBeam {
   kind: 'tractor' | 'mortar' | 'enemyMortar' | 'slam';
 }
 
-export interface SimMine {
+interface SimMine {
   id: number;
   x: number;
   z: number;
@@ -92,7 +92,7 @@ export interface SimMine {
   life: number;
 }
 
-export interface SimGuardBee {
+interface SimGuardBee {
   id: number;
   x: number;
   z: number;
@@ -111,7 +111,7 @@ export interface SimPickup {
   life: number;
 }
 
-export type SimEvent =
+type SimEvent =
   | { type: 'fire'; x: number; z: number; dx: number; dz: number; gold: boolean }
   | { type: 'backblast'; x: number; z: number; dx: number; dz: number }
   | { type: 'hit'; x: number; z: number; color: number; count: number; crit: boolean }

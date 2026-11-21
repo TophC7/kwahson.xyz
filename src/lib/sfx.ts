@@ -138,6 +138,7 @@ export interface SfxEngine {
   tone(opts: ToneOptions, bus?: AudioNode): void;
   /** Filtered noise tick: linear attack, exponential decay over duration. */
   noise(opts: NoiseOptions): void;
+  playUiClick(bright?: boolean): void;
   destroy(): void;
 }
 
@@ -190,6 +191,18 @@ export function createSfxEngine(storageKey: string, hooks: SfxHooks = {}): SfxEn
   }
   document.addEventListener('visibilitychange', onVisibility);
 
+  function ready() {
+    if (destroyed || muted || hidden) return false;
+    if (!ensureGraph() || !ctx || !master) return false;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    return true;
+  }
+
+  function tone(opts: ToneOptions, bus?: AudioNode) {
+    const out = bus ?? master;
+    if (ctx && out) scheduleTone(ctx, out, opts);
+  }
+
   return {
     isMuted: () => muted,
     setMuted(next) {
@@ -204,16 +217,8 @@ export function createSfxEngine(storageKey: string, hooks: SfxHooks = {}): SfxEn
     unlock,
     isLocked: () => !unavailable && !muted && !unlocked,
     live: () => !destroyed && !muted && !hidden && ctx?.state === 'running',
-    ready() {
-      if (destroyed || muted || hidden) return false;
-      if (!ensureGraph() || !ctx || !master) return false;
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-      return true;
-    },
-    tone(opts, bus) {
-      const out = bus ?? master;
-      if (ctx && out) scheduleTone(ctx, out, opts);
-    },
+    ready,
+    tone,
     noise({ freq, endFreq = freq, filterType = 'bandpass', gain, attack = 0.003, duration = 0.038, q = 3.2, delay = 0 }) {
       if (!ctx || !master || !noiseBuffer) return;
       const start = ctx.currentTime + delay;
@@ -235,6 +240,17 @@ export function createSfxEngine(storageKey: string, hooks: SfxHooks = {}): SfxEn
       env.connect(master);
       src.start(start, Math.random() * 0.2);
       src.stop(start + duration + 0.012);
+    },
+    playUiClick(bright = true) {
+      if (!ready()) return;
+      tone({
+        freq: bright ? 660 : 480,
+        endFreq: bright ? 740 : 420,
+        type: 'sine',
+        gain: 0.055,
+        attack: 0.004,
+        duration: 0.055,
+      });
     },
     destroy() {
       if (destroyed) return;

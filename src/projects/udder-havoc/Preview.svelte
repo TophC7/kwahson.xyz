@@ -88,6 +88,17 @@
   .uh-beam-cone { animation: uh-beam-pulse 3.6s ease-in-out infinite; }
   .uh-ring { animation: uh-ring-pulse 3.6s ease-in-out infinite; }
 
+  :global(.project-card:hover) .uh-cow,
+  :global(.project-card:hover) .uh-laser {
+    animation-duration: 1.4s;
+  }
+
+  :global(.project-card:hover) .uh-ufo,
+  :global(.project-card:hover) .uh-beam-cone,
+  :global(.project-card:hover) .uh-ring {
+    animation-duration: 2.1s;
+  }
+
   @keyframes uh-recoil {
     0%, 100% { transform: translate(120px, 134px); }
     35% { transform: translate(110px, 138px); }

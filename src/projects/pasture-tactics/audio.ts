@@ -47,9 +47,7 @@ export function createTacticsAudio(): TacticsAudio {
       tone({ freq: 185, endFreq: 112, type: 'triangle', gain: 0.10, duration: 0.10 });
       noise({ freq: 740, gain: 0.08 });
     },
-    uiClick() {
-      tone({ freq: 660, endFreq: 740, gain: 0.055, duration: 0.055 });
-    },
+    uiClick: () => sfx.playUiClick(),
     undo() {
       noise({ freq: 1480, gain: 0.08 });
       tone({ freq: 520, endFreq: 390, type: 'triangle', gain: 0.06, duration: 0.11 });

@@ -1,13 +1,13 @@
 export const BOARD_HALF_W = 6.0;
 export const BOARD_HALF_H = 5.0;
 export const SHELL_RADIUS = 0.22;
-export const SHELL_SPEED = 18.0;
+const SHELL_SPEED = 18.0;
 export const MAX_BOUNCES = 4;
 export const PREVIEW_BOUNCES = 2; // Helper sightline previews up to 3 segments (shot + 2 bounces)
 export const PUMPKIN_BLAST_RADIUS = 2.65;
 export const SHIELD_HALF_ARC = Math.PI / 3; // 120 deg front arc
 
-export interface Vec2 {
+interface Vec2 {
   x: number;
   z: number;
 }
@@ -61,7 +61,7 @@ export interface RoomState {
 
 export type HitKind = 'border' | ObstacleKind | 'shield' | 'target' | 'pumpkin';
 
-export interface RaySegment {
+interface RaySegment {
   ax: number;
   az: number;
   bx: number;
@@ -72,7 +72,7 @@ export interface RaySegment {
   nz: number;
 }
 
-export interface RayTraceResult {
+interface RayTraceResult {
   segments: RaySegment[];
   bounces: number;
   endPoint: Vec2;
@@ -93,7 +93,7 @@ export interface ActiveShell {
   alive: boolean;
 }
 
-export type ShellEvent =
+type ShellEvent =
   | { type: 'bounce'; kind: 'border' | ObstacleKind | 'shield'; id: string | null; x: number; z: number; nx: number; nz: number; bounceIndex: number }
   | { type: 'target-kill'; id: string; x: number; z: number; viaPumpkin: boolean }
   | { type: 'pumpkin-boom'; id: string; x: number; z: number }
@@ -123,7 +123,7 @@ interface SweepHit {
   id: string | null;
 }
 
-export function dirForYaw(yaw: number): Vec2 {
+function dirForYaw(yaw: number): Vec2 {
   return { x: Math.sin(yaw), z: Math.cos(yaw) };
 }
 
@@ -131,7 +131,7 @@ export function yawForDir(dx: number, dz: number): number {
   return Math.atan2(dx, dz);
 }
 
-export function normalize2(x: number, z: number): Vec2 {
+function normalize2(x: number, z: number): Vec2 {
   const len = Math.hypot(x, z);
   return len > 1e-9 ? { x: x / len, z: z / len } : { x: 0, z: 1 };
 }
@@ -448,7 +448,7 @@ function sweepFirstHit(
 }
 
 /** Collect all targets + chained pumpkins caught in a pumpkin blast. */
-export function resolvePumpkinExplosion(
+function resolvePumpkinExplosion(
   pumpkinId: string,
   state: RoomState,
   mutate: boolean,

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ArrowLeft02Icon } from '@hugeicons/core-free-icons';
+  import Button from './ui/Button.svelte';
   import Icon from './Icon.svelte';
   import NovaMark from './NovaMark.svelte';
   import type { ProjectEntry } from '../projects';
@@ -13,12 +14,12 @@
 </script>
 
 <header
-  class="sticky top-0 z-40 flex h-11 shrink-0 items-center justify-between border-b border-ink/9 bg-canvas/90 px-4 backdrop-blur-md sm:px-6"
+  class="z-40 flex h-11 shrink-0 items-center justify-between border-b border-ink/9 bg-canvas/90 px-4 backdrop-blur-md sm:px-6"
 >
   <div class="flex min-w-0 items-center gap-2.5">
     <a
       href="/"
-      class="group inline-flex items-center gap-2.5 text-sm font-medium tracking-tight text-ink transition-colors hover:text-[#e6e8e0] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-sage"
+      class="focus-ring group inline-flex items-center gap-2.5 rounded-sm text-sm font-medium tracking-tight text-ink transition-colors hover:text-[#e6e8e0]"
     >
       <span class="flex h-6 w-6 items-center justify-center">
         <NovaMark size={17} />
@@ -41,18 +42,22 @@
 
   <div class="flex shrink-0 items-center gap-3">
     {#if activeProject}
-      <a
+      <Button
         href="/"
-        class="group inline-flex items-center gap-1.5 rounded-sm border border-ink/10 bg-surface px-2.5 py-1 font-mono text-[11px] text-ink-muted transition-all duration-200 hover:border-ink/22 hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sage"
+        variant="surface"
+        size="sm"
+        class="group bg-surface text-ink-muted hover:border-ink/22 hover:text-ink"
       >
-        <Icon
-          icon={ArrowLeft02Icon}
-          size={13}
-          strokeWidth={1.9}
-          class="transition-transform duration-200 group-hover:-translate-x-0.5"
-        />
+        {#snippet icon()}
+          <Icon
+            icon={ArrowLeft02Icon}
+            size={13}
+            strokeWidth={1.9}
+            class="transition-transform duration-200 group-hover:-translate-x-0.5"
+          />
+        {/snippet}
         <span>Home</span>
-      </a>
+      </Button>
     {:else}
       <div class="flex items-center gap-2 font-mono text-[11px] text-ink-dim">
         <span class="h-1.5 w-1.5 rounded-full bg-sage animate-gentle-pulse" aria-hidden="true"></span>

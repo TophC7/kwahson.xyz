@@ -1,11 +1,9 @@
 import * as THREE from 'three';
 import { createPastureKit } from './pastureKit';
-import { buildMiniature, createStudioBuilder, createStudioStage, frameModel, type MiniatureId, type StudioBuilder } from './miniatures';
+import { buildMiniature, createStudioBuilder, createStudioStage, frameModel, type MiniatureId } from './miniatures';
 
 const RENDER_SIZE = 512;
 const SPIN_SPEED = 0.7; // radians per second
-
-export type ModelBuilder = (studio: StudioBuilder, id: string) => THREE.Group | undefined;
 
 interface Target {
   canvas: HTMLCanvasElement;
@@ -26,7 +24,7 @@ export interface Turntable {
  * rendered in turn and copied into its own 2D canvas, so any number of cards
  * share a single GL context and lay out like ordinary images.
  */
-export function createTurntable(buildCustom?: ModelBuilder): Turntable {
+export function createTurntable(): Turntable {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(1);
   renderer.setSize(RENDER_SIZE, RENDER_SIZE, false);
@@ -51,8 +49,7 @@ export function createTurntable(buildCustom?: ModelBuilder): Turntable {
   function holderFor(designId: string): THREE.Group {
     let holder = holders.get(designId);
     if (!holder) {
-      const model = buildCustom?.(studio, designId) ?? buildMiniature(studio, designId as MiniatureId);
-      holder = frameModel(model);
+      holder = frameModel(buildMiniature(studio, designId as MiniatureId));
       holders.set(designId, holder);
     }
     return holder;

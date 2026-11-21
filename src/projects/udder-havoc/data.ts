@@ -1,4 +1,5 @@
 import type { MiniatureId } from '../../lib/miniatures';
+import { PASTURE_HEMI_GROUND, PASTURE_HEMI_SKY, PASTURE_SUN_COLOR } from '../../lib/pastureKit';
 import type { PastureTablePalette } from '../../lib/pastureTable';
 
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
@@ -85,10 +86,10 @@ export const DAYTIME_DEFS: Record<DayTime, {
 }> = {
   day: {
     label: 'Day',
-    hemiSky: 0xfff8e8,
-    hemiGround: 0x709675,
+    hemiSky: PASTURE_HEMI_SKY,
+    hemiGround: PASTURE_HEMI_GROUND,
     hemiIntensity: 2.05,
-    sunColor: 0xffedd0,
+    sunColor: PASTURE_SUN_COLOR,
     sunIntensity: 2.4,
     sunPos: [-9, 22, 14],
     fillColor: 0xd8e8d6,

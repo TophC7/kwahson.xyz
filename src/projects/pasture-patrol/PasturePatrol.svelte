@@ -1,11 +1,13 @@
 <script lang="ts">
-  import GameStage from '../../components/GameStage.svelte';
   import { PauseIcon, PlayIcon, RefreshIcon, VolumeHighIcon, VolumeOffIcon } from '@hugeicons/core-free-icons';
-  import Icon from '../../components/Icon.svelte';
+  import GameStage from '../../components/GameStage.svelte';
+  import Button from '../../components/ui/Button.svelte';
+  import MeterBar from '../../components/ui/MeterBar.svelte';
+  import ModalDialog from '../../components/ui/ModalDialog.svelte';
+  import StatusPill from '../../components/ui/StatusPill.svelte';
+  import TouchPad from '../../components/ui/TouchPad.svelte';
   import { mountPasturePatrol, type PastureController, type PastureHudState } from './game';
 
-  const PAD_RADIUS = 56;
-  const MAX_TRAVEL = 38;
   const fieldGuide = [
     ['cow', 'Cow', 1, '+1 point. Hover until your beam lifts it aboard.'],
     ['chicken', 'Chicken', 1, '+1 point. From level 3 it drops egg bombs: so light that grazing one pulls it aboard. They pop after a few seconds.'],
@@ -21,19 +23,19 @@
   ] as const;
 
   let viewportEl = $state<HTMLDivElement | undefined>(undefined);
-  let controlZoneEl: HTMLDivElement;
-  let restartBtnEl = $state<HTMLButtonElement | undefined>(undefined);
-  let guideEl: HTMLDialogElement;
+  let restartBtnEl = $state<HTMLButtonElement | HTMLAnchorElement | undefined>(undefined);
+  let guideOpen = $state(false);
   let resumeAfterGuide = false;
 
   function openGuide() {
     if (!controller || hud.ended) return;
     resumeAfterGuide = !hud.paused;
     if (resumeAfterGuide) controller.togglePause();
-    guideEl.showModal();
+    guideOpen = true;
   }
 
   function closeGuide() {
+    guideOpen = false;
     if (resumeAfterGuide && hud.paused) controller?.togglePause();
     resumeAfterGuide = false;
   }
@@ -55,61 +57,6 @@
     legends: {},
   });
   const lowHull = $derived(hud.health <= 40);
-
-  // Floating circular axis pad state
-  let pad = $state<{ id: number; x: number; y: number } | null>(null);
-  let knobX = $state(0);
-  let knobY = $state(0);
-
-  function resetPad() {
-    pad = null;
-    knobX = 0;
-    knobY = 0;
-    controller?.setStickInput(0, 0, false);
-  }
-
-  function handleZoneDown(event: PointerEvent) {
-    if (hud.paused || hud.ended || pad || !controlZoneEl) return;
-
-    const rect = controlZoneEl.getBoundingClientRect();
-    const rawX = event.clientX - rect.left;
-    const rawY = event.clientY - rect.top;
-
-    // Keep the floating circle pad cleanly inside the control zone bounds.
-    const margin = PAD_RADIUS + 8;
-    const clampedX = Math.min(Math.max(margin, rawX), Math.max(margin, rect.width - margin));
-    const clampedY = Math.min(Math.max(margin, rawY), Math.max(margin, rect.height - margin));
-
-    knobX = 0;
-    knobY = 0;
-    controlZoneEl.setPointerCapture(event.pointerId);
-    controller?.setStickInput(0, 0, true);
-    pad = { id: event.pointerId, x: clampedX, y: clampedY };
-  }
-
-  function handleZoneMove(event: PointerEvent) {
-    if (event.pointerId !== pad?.id || !controlZoneEl) return;
-    const rect = controlZoneEl.getBoundingClientRect();
-    const dx = event.clientX - rect.left - pad.x;
-    const dy = event.clientY - rect.top - pad.y;
-    const dist = Math.hypot(dx, dy);
-
-    const k = Math.min(1, MAX_TRAVEL / dist);
-    knobX = dx * k;
-    knobY = dy * k;
-    controller?.setStickInput(knobX / MAX_TRAVEL, knobY / MAX_TRAVEL, true);
-  }
-
-  function handleZoneUp(event: PointerEvent) {
-    if (event.pointerId !== pad?.id) return;
-    resetPad();
-  }
-
-  $effect(() => {
-    if (hud.paused || hud.ended) {
-      resetPad();
-    }
-  });
 
   $effect(() => {
     if (hud.ended && restartBtnEl) {
@@ -144,142 +91,113 @@
   <GameStage bind:viewport={viewportEl} label="Game arena" what="the 3D pasture" {failed} />
 
   <!-- Top floating HUD -->
-  <div class="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col gap-2 p-3 sm:p-4">
-    <div class="flex items-start justify-between gap-2">
-      <!-- Unified Score + Hull Telemetry -->
-      <section
-        aria-label="Game status"
-        class="flex items-center gap-2 rounded-md border border-ink/12 bg-surface/85 px-2 py-2 backdrop-blur-md sm:gap-4 sm:px-3.5"
-      >
-        <div class="flex flex-col">
-          <span class="font-mono text-[9px] tracking-[0.12em] text-ink-dim uppercase">Score</span>
-          <div class="mt-0.5 flex items-baseline gap-1.5">
-            <strong class="font-mono text-xl leading-none font-semibold text-ink sm:text-2xl">
-              {String(hud.score).padStart(2, '0')}
-            </strong>
-            <span class="font-mono text-[9px] tracking-wider text-ink-dim uppercase">pts</span>
-            <span class="font-mono text-xs font-semibold text-sage" aria-label="Score multiplier ×{hud.combo}">×{hud.combo}</span>
-          </div>
+  <div class="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-wrap items-start justify-between gap-2 p-3 sm:p-4">
+    <!-- Unified Score + Hull Telemetry -->
+    <section
+      aria-label="Game status"
+      class="hud-surface order-1 flex items-center gap-2 rounded-md px-2 py-2 sm:gap-4 sm:px-3.5"
+    >
+      <div class="flex flex-col">
+        <span class="font-mono text-[9px] tracking-[0.12em] text-ink-dim uppercase">Score</span>
+        <div class="mt-0.5 flex items-baseline gap-1.5">
+          <strong class="font-mono text-xl leading-none font-semibold text-ink sm:text-2xl">
+            {String(hud.score).padStart(2, '0')}
+          </strong>
+          <span class="font-mono text-[9px] tracking-wider text-ink-dim uppercase">pts</span>
+          <span class="font-mono text-xs font-semibold text-sage" aria-label="Score multiplier ×{hud.combo}">×{hud.combo}</span>
         </div>
-
-        <div class="h-7 w-px bg-ink/10" aria-hidden="true"></div>
-
-        <div class="flex min-w-[64px] flex-col sm:min-w-[152px]">
-          <div class="flex items-baseline justify-between gap-2 font-mono text-[9px] tracking-[0.1em] uppercase">
-            <span class="text-ink-dim">Hull</span>
-            <span class="text-[11px] font-semibold {lowHull ? 'text-[#c97a66]' : 'text-ink'}">
-              {hud.health}
-            </span>
-          </div>
-          <div
-            class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-canvas"
-            role="meter"
-            aria-label="Ship health"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={hud.health}
-          >
-            <div
-              class="h-full rounded-full transition-[width,background-color] duration-200 {lowHull ? 'bg-[#b86b58]' : 'bg-sage'}"
-              style="width: {hud.health}%;"
-            ></div>
-          </div>
-          <div class="mt-1 flex items-center justify-between font-mono text-[8.5px] tracking-wider text-ink-dim uppercase">
-            <span>Lv {hud.level}</span>
-            <span class="text-ink-muted" title="Abductions toward the next level">{hud.abductions}/{hud.nextLevelAt}</span>
-          </div>
-        </div>
-      </section>
-
-      <!-- Desktop centered status pill -->
-      {#if hud.status}
-        <div
-          role="status"
-          class="hidden items-center gap-2 self-center rounded-full border border-ink/10 bg-surface/80 px-3 py-1.5 font-mono text-[11px] text-ink-muted backdrop-blur-md md:flex"
-        >
-          <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-sage" aria-hidden="true"></span>
-          <span class="whitespace-nowrap">{hud.status}</span>
-        </div>
-      {/if}
-
-      <!-- Compact Audio + Pause controls -->
-      <div class="pointer-events-auto flex shrink-0 items-center gap-1.5">
-        <button type="button" class="focus-ring h-9 rounded-sm border border-sage/35 bg-surface/85 px-2 font-mono text-[11px] text-ink" aria-haspopup="dialog" aria-label="Open field guide" onclick={openGuide}>Guide</button>
-        <button
-          type="button"
-          class="focus-ring inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-sm border border-ink/12 bg-surface/85 px-2.5 font-mono text-[11px] backdrop-blur-md transition-colors hover:border-ink/26 hover:bg-surface-raised {hud.muted
-            ? 'text-ink-dim'
-            : 'text-ink'}"
-          aria-pressed={hud.muted}
-          aria-label={hud.muted ? 'Sound muted (press M to unmute)' : 'Sound on (press M to mute)'}
-          aria-keyshortcuts="m"
-          title="Toggle sound (M)"
-          onclick={() => controller?.toggleMute()}
-        >
-          <Icon icon={hud.muted ? VolumeOffIcon : VolumeHighIcon} size={14} strokeWidth={1.8} />
-          <span class="hidden sm:inline">{hud.muted ? 'Off' : 'On'}</span>
-        </button>
-
-        <button
-          type="button"
-          class="focus-ring inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-sm border border-ink/12 bg-surface/85 px-2.5 font-mono text-[11px] text-ink backdrop-blur-md transition-colors hover:border-ink/26 hover:bg-surface-raised disabled:cursor-default disabled:opacity-45"
-          disabled={hud.ended}
-          aria-controls="pasture-pause-panel"
-          aria-label={hud.paused ? 'Resume flight' : 'Pause flight'}
-          aria-pressed={hud.paused}
-          aria-keyshortcuts="Escape"
-          onclick={() => controller?.togglePause()}
-        >
-          <Icon icon={hud.paused ? PlayIcon : PauseIcon} size={13} strokeWidth={1.9} />
-          <span class="hidden sm:inline">{hud.paused ? 'Resume' : 'Pause'}</span>
-        </button>
       </div>
-    </div>
 
-    <!-- Mobile status pill -->
-    {#if hud.status}
-      <div class="flex items-center justify-between gap-2 md:hidden">
-        <div
-          role="status"
-          class="inline-flex max-w-full items-center gap-1.5 truncate rounded-full border border-ink/10 bg-surface/80 px-2.5 py-1 font-mono text-[10px] text-ink-muted backdrop-blur-md"
-        >
-          <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-sage" aria-hidden="true"></span>
-          <span class="truncate">{hud.status}</span>
+      <div class="h-7 w-px bg-ink/10" aria-hidden="true"></div>
+
+      <div class="flex min-w-[64px] flex-col sm:min-w-[152px]">
+        <div class="flex items-baseline justify-between gap-2 font-mono text-[9px] tracking-[0.1em] uppercase">
+          <span class="text-ink-dim">Hull</span>
+          <span class="text-[11px] font-semibold {lowHull ? 'text-danger-soft' : 'text-ink'}">
+            {hud.health}
+          </span>
         </div>
+        <MeterBar
+          value={hud.health}
+          max={100}
+          tone={lowHull ? 'danger' : 'sage'}
+          ariaLabel="Ship health"
+          class="mt-1.5"
+        />
+        <div class="mt-1 flex items-center justify-between font-mono text-[8.5px] tracking-wider text-ink-dim uppercase">
+          <span>Lv {hud.level}</span>
+          <span class="text-ink-muted" title="Abductions toward the next level">{hud.abductions}/{hud.nextLevelAt}</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Responsive status pill (second row on mobile, centered on desktop) -->
+    {#if hud.status}
+      <div class="order-3 flex w-full min-w-0 justify-start md:order-2 md:w-auto md:max-w-[44%] md:flex-1 md:justify-center md:self-center">
+        <StatusPill>{hud.status}</StatusPill>
       </div>
     {/if}
+
+    <!-- Compact Audio + Pause controls -->
+    <div class="pointer-events-auto order-2 flex shrink-0 items-center gap-1.5 md:order-3">
+      <Button
+        variant="surface"
+        size="sm"
+        class="hud-surface min-h-9 border-sage/35 px-2.5"
+        aria-haspopup="dialog"
+        aria-label="Open field guide"
+        onclick={openGuide}
+      >
+        Guide
+      </Button>
+
+      <Button
+        variant="surface"
+        size="sm"
+        class="hud-surface min-h-9 {hud.muted ? 'text-ink-dim' : 'text-ink'}"
+        icon={hud.muted ? VolumeOffIcon : VolumeHighIcon}
+        iconSize={14}
+        hideLabelOnMobile
+        aria-pressed={hud.muted}
+        aria-label={hud.muted ? 'Sound muted (press M to unmute)' : 'Sound on (press M to mute)'}
+        aria-keyshortcuts="m"
+        title="Toggle sound (M)"
+        onclick={() => controller?.toggleMute()}
+      >
+        {hud.muted ? 'Off' : 'On'}
+      </Button>
+
+      <Button
+        variant="surface"
+        size="sm"
+        class="hud-surface min-h-9"
+        icon={hud.paused ? PlayIcon : PauseIcon}
+        iconSize={13}
+        hideLabelOnMobile
+        disabled={hud.ended}
+        aria-label={hud.paused ? 'Resume flight' : 'Pause flight'}
+        aria-pressed={hud.paused}
+        aria-keyshortcuts="Escape"
+        onclick={() => controller?.togglePause()}
+      >
+        {hud.paused ? 'Resume' : 'Pause'}
+      </Button>
+    </div>
   </div>
 
   <!-- Touch / Mobile Floating Circular Control Zone -->
-  <div
-    bind:this={controlZoneEl}
-    class="pp-control-zone absolute inset-x-0 bottom-0 z-10 h-[44%] touch-none"
-    role="application"
-    aria-label="Touch steering zone. Touch and slide anywhere in the lower area to steer your UFO."
-    onpointerdown={handleZoneDown}
-    onpointermove={handleZoneMove}
-    onpointerup={handleZoneUp}
-    onpointercancel={handleZoneUp}
-    onlostpointercapture={handleZoneUp}
-  >
-    <div
-      class="pp-pad"
-      class:is-active={pad}
-      style={pad ? `left: ${pad.x}px; top: ${pad.y}px;` : 'left: 50%; top: 54%;'}
-      aria-hidden="true"
-    >
-      <span class="pp-axis-h"></span>
-      <span class="pp-axis-v"></span>
-      <span class="pp-inner-ring"></span>
-      <span
-        class="pp-knob"
-        style="transform: translate(calc(-50% + {knobX}px), calc(-50% + {knobY}px));"
-      ></span>
-    </div>
-  </div>
+  <TouchPad
+    ariaLabel="Touch steering zone. Touch and slide anywhere in the lower area to steer your UFO."
+    radius={56}
+    maxTravel={38}
+    defaultPos={{ left: '50%', top: '54%' }}
+    disabled={hud.paused || hud.ended || guideOpen}
+    onInput={(nx, ny, active) => controller?.setStickInput(nx, ny, active)}
+    class="absolute inset-x-0 bottom-0 z-10 h-[44%]"
+  />
 
   <footer class="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex items-end justify-center gap-3 px-4 lg:justify-between">
-    <ul aria-label="Quick field guide" class="m-0 hidden list-none items-center gap-4 rounded-md border border-sage/20 bg-surface/85 px-3 py-1 lg:flex">
+    <ul aria-label="Quick field guide" class="hud-surface m-0 hidden list-none items-center gap-4 rounded-md border-sage/20 px-3 py-1 lg:flex">
       {#each [['cow', 'Cow', '+1 pt'], ['healer', 'Pink cow', '+25 hull'], ['hazards', 'Debris', '−20 hull']] as [key, name, value] (key)}
         <li class="flex items-center gap-1.5 font-mono text-[10px]">
           {#if hud.legends[key]}
@@ -289,21 +207,21 @@
         </li>
       {/each}
     </ul>
-    <p class="m-0 text-center font-mono text-[10px] text-ink-muted lg:rounded-md lg:bg-surface/85 lg:px-3 lg:py-2">
+    <p class="m-0 text-center font-mono text-[10px] text-ink-muted lg:rounded-md lg:border lg:border-ink/12 lg:bg-surface/85 lg:px-3 lg:py-2 lg:backdrop-blur-md">
       <span class="hidden md:inline">Cursor steers</span><span class="md:hidden">Slide below to steer</span> · Beam always on
     </p>
   </footer>
 
-  <dialog bind:this={guideEl} onclose={closeGuide} aria-labelledby="pasture-guide-title"
-    class="m-auto max-h-[min(85dvh,44rem)] w-[min(34rem,calc(100%-2rem))] overflow-y-auto overscroll-contain rounded-md border border-sage/35 bg-surface p-0 text-ink shadow-2xl backdrop:bg-black/65">
-    <header class="sticky top-0 flex items-center justify-between gap-3 border-b border-sage/20 bg-surface px-4 py-2">
-      <div>
-        <p class="m-0 font-mono text-[10px] tracking-widest text-sage uppercase">Flight paused</p>
-        <h2 id="pasture-guide-title" class="m-0 text-lg font-semibold">Field guide</h2>
-      </div>
-      <button type="button" class="focus-ring rounded-sm border border-sage/40 px-3 py-2 font-mono text-xs" onclick={() => guideEl.close()}>Close guide</button>
-    </header>
-    <div class="space-y-3 px-4 py-3 text-sm">
+  <!-- Field Guide Dialog -->
+  <ModalDialog
+    open={guideOpen}
+    onClose={closeGuide}
+    eyebrow="Flight paused"
+    title="Field guide"
+    tone="sage"
+    maxWidth="34rem"
+  >
+    <div class="space-y-3 text-ink">
       <p>Steer with your cursor or drag in the lower touch zone. Your beam is always on: hover over a critter to collect it.</p>
       <p><strong class="text-sage">Level progress:</strong> Every abduction counts once. Levels 2–7 start at 10, 25, 45, 70, 100, and 135 abductions. Extra points and combos don’t speed up unlocks.</p>
       <p>Threats give you breathers between attacks. Use a quiet stretch to finish a capture or look for a pink cow.</p>
@@ -322,174 +240,56 @@
         {/each}
       </ul>
     </div>
-  </dialog>
+  </ModalDialog>
 
-  <!-- Pause overlay -->
-  {#if hud.paused && !hud.ended}
-    <div class="absolute inset-0 z-30 grid place-items-center bg-canvas/55 p-4 backdrop-blur-xs">
-      <div
-        id="pasture-pause-panel"
-        role="status"
-        class="w-full max-w-[300px] rounded-md border border-ink/14 bg-surface p-6 text-center shadow-[0_24px_60px_rgba(0,0,0,0.65)]"
-      >
-        <p class="m-0 font-mono text-[10px] tracking-[0.14em] text-sage uppercase">Paused</p>
-        <strong class="mt-1.5 block text-xl font-semibold tracking-tight text-ink">Flight Paused</strong>
-        <span class="mt-2 block text-xs text-ink-muted">Press Esc or resume to keep gathering.</span>
-        <button
-          type="button"
-          onclick={() => controller?.togglePause()}
-          class="focus-ring mt-5 inline-flex cursor-pointer items-center gap-1.5 rounded-sm border border-sage/50 bg-sage/20 px-4 py-2 font-mono text-xs font-medium text-ink transition-colors hover:bg-sage/32"
-        >
-          <Icon icon={PlayIcon} size={13} strokeWidth={1.9} />
-          <span>Resume</span>
-        </button>
-        <button type="button" class="focus-ring mt-3 block w-full py-2 font-mono text-xs text-sage" aria-haspopup="dialog" onclick={openGuide}>Field guide</button>
-      </div>
+  <!-- Pause Dialog -->
+  <ModalDialog
+    open={hud.paused && !hud.ended && !guideOpen}
+    onClose={() => {
+      if (hud.paused && !hud.ended && !guideOpen) controller?.togglePause();
+    }}
+    eyebrow="Paused"
+    title="Flight Paused"
+    tone="sage"
+    maxWidth="20rem"
+  >
+    <p class="m-0 text-center text-xs text-ink-muted">Press Esc or resume to keep gathering.</p>
+    {#snippet actions()}
+      <Button variant="ghost" size="md" aria-haspopup="dialog" onclick={openGuide}>
+        Field guide
+      </Button>
+      <Button variant="primary" size="md" icon={PlayIcon} iconSize={13} onclick={() => controller?.togglePause()}>
+        Resume
+      </Button>
+    {/snippet}
+  </ModalDialog>
+
+  <!-- Game Over Dialog -->
+  <ModalDialog
+    open={hud.ended}
+    dismissible={false}
+    eyebrow="Run Complete"
+    title="Flight Over"
+    tone="default"
+    maxWidth="22rem"
+  >
+    <div class="flex items-baseline justify-center gap-2.5 rounded-sm border border-ink/8 bg-canvas/70 py-3 font-mono">
+      <span class="text-[10px] tracking-[0.12em] text-ink-dim uppercase">Score</span>
+      <strong class="text-3xl font-semibold text-ink">{hud.score}</strong>
+      <span class="text-[10px] tracking-wider text-sage uppercase">points</span>
     </div>
-  {/if}
-
-  <!-- Game Over overlay -->
-  {#if hud.ended}
-    <section
-      class="absolute inset-0 z-40 grid place-items-center bg-canvas/65 p-5 backdrop-blur-sm"
-      aria-labelledby="pasture-game-over-title"
-    >
-      <div class="w-full max-w-[340px] rounded-md border border-ink/14 bg-surface p-7 text-center shadow-[0_24px_70px_rgba(0,0,0,0.7)]">
-        <p class="m-0 font-mono text-[10px] tracking-[0.14em] text-ochre uppercase">Run Complete</p>
-        <h2 id="pasture-game-over-title" class="mt-1.5 mb-5 text-2xl font-semibold tracking-tight text-ink">
-          Flight Over
-        </h2>
-
-        <div class="flex items-baseline justify-center gap-2.5 rounded-sm border border-ink/8 bg-canvas/70 py-3 font-mono">
-          <span class="text-[10px] tracking-[0.12em] text-ink-dim uppercase">Score</span>
-          <strong class="text-3xl font-semibold text-ink">{hud.score}</strong>
-          <span class="text-[10px] tracking-wider text-sage uppercase">points</span>
-        </div>
-
-        <button
-          bind:this={restartBtnEl}
-          type="button"
-          class="focus-ring mt-5 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-sm border border-sage/50 bg-sage/20 px-4 py-2.5 font-mono text-xs font-medium text-ink transition-colors hover:bg-sage/32"
-          onclick={() => controller?.restart()}
-        >
-          <Icon icon={RefreshIcon} size={14} strokeWidth={1.9} />
-          <span>Take another flight</span>
-        </button>
-      </div>
-    </section>
-  {/if}
+    {#snippet actions()}
+      <Button
+        bind:ref={restartBtnEl}
+        variant="primary"
+        size="md"
+        icon={RefreshIcon}
+        iconSize={14}
+        class="w-full"
+        onclick={() => controller?.restart()}
+      >
+        Take another flight
+      </Button>
+    {/snippet}
+  </ModalDialog>
 </div>
-
-<style>
-  /* Show floating circular touch pad on touch devices or narrow viewports */
-  .pp-control-zone {
-    display: none;
-  }
-
-  @media (hover: none) and (pointer: coarse), (max-width: 768px) {
-    .pp-control-zone {
-      display: block;
-    }
-  }
-
-  .pp-pad {
-    position: absolute;
-    width: 112px;
-    height: 112px;
-    transform: translate(-50%, -50%);
-    border-radius: 50%;
-    border: 1px solid rgba(213, 215, 207, 0.2);
-    background: radial-gradient(circle, rgba(23, 25, 22, 0.62) 0%, rgba(17, 18, 16, 0.42) 100%);
-    backdrop-filter: blur(4px);
-    box-shadow: inset 0 0 0 1px rgba(213, 215, 207, 0.04);
-    pointer-events: none;
-    opacity: 0.72;
-    transition:
-      left 220ms cubic-bezier(0.22, 1, 0.36, 1),
-      top 220ms cubic-bezier(0.22, 1, 0.36, 1),
-      opacity 160ms ease,
-      border-color 160ms ease,
-      box-shadow 160ms ease;
-  }
-
-  .pp-pad.is-active {
-    opacity: 1;
-    border-color: rgba(158, 176, 154, 0.65);
-    box-shadow:
-      0 0 0 1px rgba(158, 176, 154, 0.2),
-      inset 0 0 18px rgba(122, 141, 118, 0.14);
-    transition:
-      opacity 120ms ease,
-      border-color 120ms ease,
-      box-shadow 120ms ease;
-  }
-
-  .pp-axis-h,
-  .pp-axis-v {
-    position: absolute;
-    background: rgba(213, 215, 207, 0.16);
-  }
-
-  .pp-axis-h {
-    left: 14px;
-    right: 14px;
-    top: 50%;
-    height: 1px;
-    transform: translateY(-0.5px);
-  }
-
-  .pp-axis-v {
-    top: 14px;
-    bottom: 14px;
-    left: 50%;
-    width: 1px;
-    transform: translateX(-0.5px);
-  }
-
-  .pp-pad.is-active .pp-axis-h,
-  .pp-pad.is-active .pp-axis-v {
-    background: rgba(158, 176, 154, 0.32);
-  }
-
-  .pp-inner-ring {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 44px;
-    height: 44px;
-    transform: translate(-50%, -50%);
-    border-radius: 50%;
-    border: 1px dashed rgba(213, 215, 207, 0.15);
-  }
-
-  .pp-knob {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
-    border: 1.5px solid rgba(158, 176, 154, 0.7);
-    background: rgba(122, 141, 118, 0.28);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
-    transition:
-      transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
-      border-color 140ms ease,
-      background-color 140ms ease;
-  }
-
-  .pp-pad.is-active .pp-knob {
-    border-color: var(--color-ochre);
-    background: rgba(159, 134, 101, 0.42);
-    transition:
-      border-color 120ms ease,
-      background-color 120ms ease;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .pp-pad,
-    .pp-knob {
-      transition: none !important;
-    }
-  }
-</style>

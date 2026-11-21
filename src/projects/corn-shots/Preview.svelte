@@ -93,6 +93,12 @@
     animation: cs-pulse 2.8s ease-in-out infinite;
   }
 
+  :global(.project-card:hover) .cs-beam,
+  :global(.project-card:hover) .cs-lock,
+  :global(.project-card:hover) .cs-spark {
+    animation-duration: 1.6s;
+  }
+
   @keyframes cs-trace {
     0%, 15% {
       opacity: 0.42;
@@ -115,6 +121,14 @@
     55% {
       opacity: 0.95;
       transform: scale(1.06);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cs-beam,
+    .cs-lock,
+    .cs-spark {
+      animation: none !important;
     }
   }
 </style>

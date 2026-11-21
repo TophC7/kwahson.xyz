@@ -1,6 +1,6 @@
 import type { MiniatureId } from '../../lib/miniatures';
 import * as THREE from 'three';
-import { BAZOOKA_MUZZLE_LOCAL } from '../../lib/bazookaCow';
+import { BAZOOKA_MUZZLE_LOCAL, createSightBeams, SIGHT_GOLD, SIGHT_MINT, wrapCornShell } from '../../lib/bazookaCow';
 import type { PastureAudio } from './audio';
 import type { PastureKit } from '../../lib/pastureKit';
 
@@ -57,9 +57,9 @@ export function createThreats({ scene, kit, miniature, audio, player, hover, ent
     m.rotation.x = -Math.PI / 2;
     return m;
   }
-  const gold = ink(0xffe469);
+  const gold = ink(SIGHT_GOLD);
   const orange = ink(0xb5401d);
-  const mint = ink(0xb6ffdb);
+  const mint = ink(SIGHT_MINT);
   const mortar = group();
   const pumpkin = miniature('pumpkin');
   mortar.add(pumpkin);
@@ -193,9 +193,8 @@ export function createThreats({ scene, kit, miniature, audio, player, hover, ent
   // The bazooka cow is a field unit, not a scheduled event: while it stands it keeps firing.
   const sight = group();
   const target = circle(sight, GUNNER_RADIUS, mint);
-  const aimLine = kit.part(sight, 'box', 0, [1, 1, 1], [0, 0, 0], mint);
-  const shell = miniature('corn');
-  shell.scale.setScalar(0.9);
+  const sightBeams = createSightBeams(kit, sight, 1, { opacity: 1, lockedOpacity: 1 });
+  const shell = wrapCornShell(miniature('corn'));
   root.add(shell);
   const muzzle = new THREE.Vector3(), aimEnd = new THREE.Vector3(), velocity = new THREE.Vector3();
   const before = new THREE.Vector3(), ufo = new THREE.Vector3(), hit = new THREE.Vector3(), path = new THREE.Line3(before);
@@ -205,12 +204,13 @@ export function createThreats({ scene, kit, miniature, audio, player, hover, ent
     if (aim) aim.aiming = false;
     aim = undefined;
     sight.visible = false;
+    sightBeams.hideFrom(0);
   }
   function updateShell(dt: number) {
     if (!shell.visible) return;
     before.copy(shell.position);
     shell.position.addScaledVector(velocity, dt);
-    shell.rotateY(dt * 14);
+    shell.rotateZ(dt * 14);
     // Swept test so a fast shell can't tunnel through the hull between frames.
     path.end.copy(shell.position);
     path.closestPointToPoint(ufo.set(player.x, hover, player.z), true, hit);
@@ -243,19 +243,15 @@ export function createThreats({ scene, kit, miniature, audio, player, hover, ent
     cow.mesh.localToWorld(muzzle.set(...BAZOOKA_MUZZLE_LOCAL));
     const locked = charge >= TRACK;
     const pulse = locked ? 0.2 + 0.05 * Math.sin(charge * 60) : 0.1;
-    aimLine.position.copy(muzzle).lerp(aimEnd, 0.5);
-    aimLine.scale.set(pulse, pulse, muzzle.distanceTo(aimEnd));
-    aimLine.lookAt(aimEnd);
+    sightBeams.setSegment(0, muzzle, aimEnd, pulse, locked);
     target.position.set(aimEnd.x, GROUND, aimEnd.z);
-    target.material = aimLine.material = locked ? gold : mint;
+    target.material = locked ? gold : mint;
     if (charge < TRACK + LOCK) return;
     cancelAim();
     shell.visible = true;
     shell.position.copy(muzzle);
     velocity.copy(aimEnd).sub(muzzle).setLength(SHELL_SPEED);
-    // The corn model stands on its y axis; tip it to fly point-first.
     shell.lookAt(aimEnd);
-    shell.rotateX(Math.PI / 2);
     audio.playCornLaunch();
     reload = Math.max(1.4, 2.6 - 0.15 * (level - 5));
   }
@@ -328,6 +324,7 @@ export function createThreats({ scene, kit, miniature, audio, player, hover, ent
     reset,
     dispose() {
       cancelAim();
+      sightBeams.dispose();
       root.removeFromParent();
       // The caller owns the shared kit geometry and studio-tracked miniature resources.
       for (const m of materials) m.dispose();

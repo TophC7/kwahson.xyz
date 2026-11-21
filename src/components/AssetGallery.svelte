@@ -29,13 +29,14 @@
   import {
     ArrowLeft01Icon,
     ArrowRight01Icon,
-    Cancel01Icon,
     Copy01Icon,
     Delete02Icon,
     Tick01Icon,
   } from '@hugeicons/core-free-icons';
-  import { createTurntable, type ModelBuilder } from '../lib/turntable';
-  import Icon from './Icon.svelte';
+  import { createTurntable } from '../lib/turntable';
+  import Button from './ui/Button.svelte';
+  import ModalDialog from './ui/ModalDialog.svelte';
+  import SegmentedControl, { type SegmentedOption } from './ui/SegmentedControl.svelte';
 
   type ReviewStatus = 'ok' | 'tweak' | 'redo' | '';
   type ViewMode = 'both' | 'tile' | 'model';
@@ -52,23 +53,33 @@
     groups: Record<string, GalleryGroup>;
     previews?: Record<string, string>;
     tags?: Record<string, string>;
-    buildModel?: ModelBuilder;
     onClose: () => void;
   }
 
   const STATUSES: { id: Exclude<ReviewStatus, ''>; label: string; cls: string }[] = [
     { id: 'ok', label: 'OK', cls: 'border-sage/60 bg-sage/24 text-ink' },
     { id: 'tweak', label: 'Tweak', cls: 'border-ochre/70 bg-ochre/24 text-ink' },
-    { id: 'redo', label: 'Redo', cls: 'border-[#c96c5b]/70 bg-[#c96c5b]/24 text-[#f0b4a9]' },
+    { id: 'redo', label: 'Redo', cls: 'border-danger/70 bg-danger/24 text-danger-soft' },
+  ];
+  const VIEW_MODES: SegmentedOption<ViewMode>[] = [
+    { value: 'both', label: 'Both' },
+    { value: 'tile', label: 'Tile' },
+    { value: 'model', label: '3D Model' },
   ];
   // Status/comment review + JSON export only exist on the dev server; Vite folds this to `false` in builds so those branches drop out.
   const REVIEW = import.meta.env.DEV;
 
-  let { title, storageKey, items, groups, previews, tags, buildModel, onClose }: Props = $props();
+  let { title, storageKey, items, groups, previews, tags, onClose }: Props = $props();
 
-  // svelte-ignore state_referenced_locally
-  const turntable = createTurntable(buildModel);
-  $effect(() => turntable.destroy);
+  const turntable = createTurntable();
+  let copyTimer = 0;
+  let confirmTimer = 0;
+
+  $effect(() => () => {
+    clearTimeout(copyTimer);
+    clearTimeout(confirmTimer);
+    turntable.destroy();
+  });
 
   function loadSaved(): Record<string, ReviewEntry> {
     try {
@@ -129,6 +140,15 @@
 
   const exportJson = $derived(JSON.stringify(exportItems, null, 2));
 
+  const filterOptions = $derived<SegmentedOption<string>[]>([
+    { value: 'all', label: `All (${items.length})` },
+    ...(REVIEW ? [{ value: 'notes', label: `Notes (${exportItems.length})` }] : []),
+    ...Object.keys(groups).map((group) => ({
+      value: group,
+      label: `${groups[group].label} (${items.filter((d) => d.group === group).length})`,
+    })),
+  ]);
+
   const filteredDesigns = $derived.by(() => {
     if (filter === 'all') return items;
     if (filter === 'notes') return items.filter((d) => hasFeedback(d.id));
@@ -146,7 +166,8 @@
     try {
       await navigator.clipboard.writeText(exportJson);
       copied = true;
-      setTimeout(() => (copied = false), 2000);
+      clearTimeout(copyTimer);
+      copyTimer = window.setTimeout(() => (copied = false), 2000);
     } catch {
       showJson = true;
     }
@@ -155,11 +176,13 @@
   function clearAllNotes() {
     if (!confirmClear) {
       confirmClear = true;
-      setTimeout(() => (confirmClear = false), 3000);
+      clearTimeout(confirmTimer);
+      confirmTimer = window.setTimeout(() => (confirmClear = false), 3000);
       return;
     }
     reviews = {};
     confirmClear = false;
+    clearTimeout(confirmTimer);
     saveReviews();
   }
 
@@ -175,9 +198,7 @@
       return;
     }
     if (focusedDesign) {
-      if (e.key === 'Escape') {
-        focusedId = null;
-      } else if (e.key === 'ArrowRight') {
+      if (e.key === 'ArrowRight') {
         e.preventDefault();
         stepFocused(1);
       } else if (e.key === 'ArrowLeft') {
@@ -192,135 +213,110 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
+{#snippet reviewEditor(id: string, rows: number, placeholder: string)}
+  {@const entry = getEntry(id)}
+  <div class="flex flex-1 flex-col gap-2 border-t border-ink/8 p-2.5">
+    <div class="flex items-center gap-1 font-mono text-[10px]">
+      {#each STATUSES as btn (btn.id)}
+        <button
+          type="button"
+          onclick={() => setStatus(id, btn.id)}
+          aria-pressed={entry.status === btn.id}
+          class="focus-ring flex-1 cursor-pointer rounded-sm border py-1 transition-colors {entry.status === btn.id
+            ? btn.cls
+            : 'border-ink/9 bg-canvas/60 text-ink-dim hover:text-ink-muted'}"
+        >
+          {btn.label}
+        </button>
+      {/each}
+    </div>
+
+    <textarea
+      {rows}
+      value={entry.comment}
+      oninput={(e) => patchEntry(id, { comment: e.currentTarget.value })}
+      {placeholder}
+      class="focus-ring w-full resize-y rounded-sm border border-ink/10 bg-canvas/80 px-2 py-1.5 text-xs text-ink placeholder:text-ink-dim"
+    ></textarea>
+  </div>
+{/snippet}
+
 <div
   class="absolute inset-0 z-40 flex flex-col bg-canvas text-ink select-text"
   role="dialog"
   aria-modal="true"
   aria-label={title}
 >
-  <!-- Sticky top review bar -->
   <header class="shrink-0 border-b border-ink/10 bg-surface/95 px-3 py-2.5 backdrop-blur-md sm:px-5">
     <div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2.5">
       <div class="flex items-center gap-3">
-        <button
-          type="button"
-          onclick={onClose}
-          class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-sm border border-ink/14 bg-surface-raised px-2.5 font-mono text-[11px] text-ink transition-colors hover:border-sage/45"
-        >
-          <Icon icon={ArrowLeft01Icon} size={14} strokeWidth={2} />
-          <span>Back</span>
-        </button>
+        <Button variant="surface" size="sm" icon={ArrowLeft01Icon} onclick={onClose}>
+          Back
+        </Button>
 
-        <div>
-          <h1 class="text-sm font-semibold tracking-tight text-ink sm:text-base">
-            {title}{REVIEW ? ' Review' : ''} <span class="font-mono text-xs font-normal text-ink-dim">({items.length})</span>
-          </h1>
-        </div>
+        <h1 class="text-sm font-semibold tracking-tight text-ink sm:text-base">
+          {title}{REVIEW ? ' Review' : ''}
+          <span class="font-mono text-xs font-normal text-ink-dim">({items.length})</span>
+        </h1>
       </div>
 
-      <!-- View mode + JSON export actions -->
       <div class="flex flex-wrap items-center gap-1.5">
         {#if previews}
-          <div
-            role="group"
-            aria-label="Preview view mode"
-            class="flex items-center rounded-sm border border-ink/12 bg-canvas/80 p-0.5 font-mono text-[10.5px]"
-          >
-            {#each [
-              { id: 'both', label: 'Both' },
-              { id: 'tile', label: 'Tile' },
-              { id: 'model', label: '3D Model' },
-            ] as mode}
-              <button
-                type="button"
-                onclick={() => (viewMode = mode.id as ViewMode)}
-                class="cursor-pointer rounded-[2px] px-2 py-1 transition-colors {viewMode === mode.id
-                  ? 'bg-sage/25 text-ink'
-                  : 'text-ink-muted hover:text-ink'}"
-              >
-                {mode.label}
-              </button>
-            {/each}
-          </div>
+          <SegmentedControl
+            options={VIEW_MODES}
+            value={viewMode}
+            onChange={(v) => (viewMode = v)}
+            ariaLabel="Preview view mode"
+          />
         {/if}
 
         {#if REVIEW}
-          <button
-            type="button"
+          <Button
+            variant="surface"
+            size="sm"
+            active={showJson}
             onclick={() => (showJson = !showJson)}
-            class="inline-flex h-8 cursor-pointer items-center rounded-sm border border-ink/12 bg-surface-raised px-2.5 font-mono text-[11px] text-ink-muted transition-colors hover:border-ink/26 hover:text-ink"
+            class="text-ink-muted hover:text-ink"
           >
             {showJson ? 'Hide JSON' : 'Preview JSON'}
-          </button>
+          </Button>
 
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
+            icon={copied ? Tick01Icon : Copy01Icon}
+            iconSize={13}
             onclick={copyJson}
-            class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-sm border border-sage/55 bg-sage/24 px-3 font-mono text-[11px] font-medium text-ink transition-colors hover:bg-sage/36"
           >
-            <Icon icon={copied ? Tick01Icon : Copy01Icon} size={13} strokeWidth={2} />
-            <span>{copied ? 'Copied JSON!' : `Copy JSON (${exportItems.length})`}</span>
-          </button>
+            {copied ? 'Copied JSON!' : `Copy JSON (${exportItems.length})`}
+          </Button>
 
           {#if exportItems.length > 0}
-            <button
-              type="button"
+            <Button
+              variant={confirmClear ? 'danger' : 'surface'}
+              size="sm"
+              icon={Delete02Icon}
+              iconSize={13}
               onclick={clearAllNotes}
-              class="inline-flex h-8 cursor-pointer items-center gap-1 rounded-sm border px-2 font-mono text-[10.5px] transition-colors {confirmClear
-                ? 'border-[#c96c5b]/60 bg-[#c96c5b]/20 text-[#e8a397]'
-                : 'border-ink/10 bg-surface-raised text-ink-dim hover:text-ink-muted'}"
               title="Clear all saved notes"
             >
-              <Icon icon={Delete02Icon} size={13} strokeWidth={1.8} />
-              <span>{confirmClear ? 'Confirm clear?' : 'Clear'}</span>
-            </button>
+              {confirmClear ? 'Confirm clear?' : 'Clear'}
+            </Button>
           {/if}
         {/if}
       </div>
     </div>
 
-    <!-- Group filter pills -->
-    <div class="mx-auto mt-2.5 flex max-w-7xl flex-wrap items-center gap-1.5">
-      <button
-        type="button"
-        onclick={() => (filter = 'all')}
-        class="cursor-pointer rounded-sm border px-2 py-0.5 font-mono text-[10.5px] transition-colors {filter === 'all'
-          ? 'border-sage/50 bg-sage/20 text-ink'
-          : 'border-ink/9 bg-canvas/60 text-ink-muted hover:text-ink'}"
-      >
-        All ({items.length})
-      </button>
-
-      {#if REVIEW}
-        <button
-          type="button"
-          onclick={() => (filter = 'notes')}
-          class="cursor-pointer rounded-sm border px-2 py-0.5 font-mono text-[10.5px] transition-colors {filter === 'notes'
-            ? 'border-ochre/60 bg-ochre/20 text-ink'
-            : 'border-ink/9 bg-canvas/60 text-ink-muted hover:text-ink'}"
-        >
-          Flagged / Notes ({exportItems.length})
-        </button>
-      {/if}
-
-      <span class="mx-0.5 h-3.5 w-px bg-ink/12" aria-hidden="true"></span>
-
-      {#each Object.keys(groups) as group}
-        {@const count = items.filter((d) => d.group === group).length}
-        <button
-          type="button"
-          onclick={() => (filter = group)}
-          class="cursor-pointer rounded-sm border px-2 py-0.5 font-mono text-[10.5px] transition-colors {filter === group
-            ? 'border-sage/50 bg-sage/20 text-ink'
-            : 'border-ink/9 bg-canvas/60 text-ink-muted hover:text-ink'}"
-        >
-          {groups[group].label} ({count})
-        </button>
-      {/each}
+    <div class="mx-auto mt-2.5 max-w-7xl">
+      <SegmentedControl
+        options={filterOptions}
+        value={filter}
+        onChange={(v) => (filter = v)}
+        ariaLabel="Filter assets"
+      />
     </div>
   </header>
 
-  <!-- Collapsible JSON preview drawer -->
   {#if REVIEW && showJson}
     <div class="shrink-0 border-b border-ink/12 bg-[#141613] px-3 py-3 sm:px-5">
       <div class="mx-auto max-w-7xl">
@@ -329,7 +325,7 @@
           <button
             type="button"
             onclick={copyJson}
-            class="cursor-pointer text-sage-soft underline underline-offset-2 hover:text-ink"
+            class="focus-ring cursor-pointer rounded-xs text-sage-soft underline underline-offset-2 hover:text-ink"
           >
             {copied ? 'Copied!' : 'Copy to clipboard'}
           </button>
@@ -339,19 +335,14 @@
     </div>
   {/if}
 
-  <!-- Scrollable asset review grid -->
   <div class="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5">
     <div class="mx-auto max-w-7xl">
       {#if filteredDesigns.length === 0}
         <div class="rounded-md border border-dashed border-ink/14 bg-surface/40 p-10 text-center">
           <p class="font-mono text-xs text-ink-muted">No assets match this filter yet.</p>
-          <button
-            type="button"
-            onclick={() => (filter = 'all')}
-            class="mt-3 cursor-pointer rounded-sm border border-sage/45 bg-sage/18 px-3 py-1.5 font-mono text-[11px] text-ink"
-          >
+          <Button variant="primary" size="sm" onclick={() => (filter = 'all')} class="mt-3">
             Show all {items.length} assets
-          </button>
+          </Button>
         </div>
       {:else}
         <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -361,14 +352,13 @@
             {@const tag = tags?.[design.id]}
             <article
               class="flex flex-col overflow-hidden rounded-md border bg-surface transition-colors {entry.status === 'redo'
-                ? 'border-[#c96c5b]/55'
+                ? 'border-danger/55'
                 : entry.status === 'tweak'
                   ? 'border-ochre/60'
                   : entry.status === 'ok'
                     ? 'border-sage/45'
                     : 'border-ink/10'}"
             >
-              <!-- Card header -->
               <div class="flex items-center justify-between gap-2 border-b border-ink/8 px-3 py-2">
                 <div class="flex min-w-0 items-center gap-2">
                   <span
@@ -395,11 +385,10 @@
                 </div>
               </div>
 
-              <!-- Image preview stage (click to zoom lightbox) -->
               <button
                 type="button"
                 onclick={() => (focusedId = design.id)}
-                class="group relative flex cursor-zoom-in items-center justify-center gap-2.5 bg-[#141613] p-3 transition-colors hover:bg-[#191c18]"
+                class="focus-ring group relative flex cursor-zoom-in items-center justify-center gap-2.5 bg-[#141613] p-3 transition-colors hover:bg-[#191c18]"
                 title="Click to inspect larger"
               >
                 {#if previews?.[design.id] && viewMode !== 'model'}
@@ -429,30 +418,7 @@
               </button>
 
               {#if REVIEW}
-                <!-- Status pills + comment input -->
-                <div class="flex flex-1 flex-col gap-2 border-t border-ink/8 p-2.5">
-                  <div class="flex items-center gap-1 font-mono text-[10px]">
-                    {#each STATUSES as btn}
-                      <button
-                        type="button"
-                        onclick={() => setStatus(design.id, btn.id)}
-                        class="flex-1 cursor-pointer rounded-sm border py-1 transition-colors {entry.status === btn.id
-                          ? btn.cls
-                          : 'border-ink/9 bg-canvas/60 text-ink-dim hover:text-ink-muted'}"
-                      >
-                        {btn.label}
-                      </button>
-                    {/each}
-                  </div>
-
-                  <textarea
-                    rows={2}
-                    value={entry.comment}
-                    oninput={(e) => patchEntry(design.id, { comment: e.currentTarget.value })}
-                    placeholder="Add comment for this asset..."
-                    class="w-full resize-y rounded-sm border border-ink/10 bg-canvas/80 px-2 py-1.5 text-xs text-ink placeholder:text-ink-dim focus:border-sage/55 focus:outline-none"
-                  ></textarea>
-                </div>
+                {@render reviewEditor(design.id, 2, 'Add comment for this asset...')}
               {/if}
             </article>
           {/each}
@@ -461,61 +427,41 @@
     </div>
   </div>
 
-  <!-- Lightbox detail view for inspecting an asset up close & stepping with arrow keys -->
-  {#if focusedDesign}
-    {@const group = groups[focusedDesign.group]}
-    <div
-      class="fixed inset-0 z-50 grid place-items-center bg-canvas/82 p-4 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Inspect ${focusedDesign.name}`}
-    >
-      <div class="w-full max-w-2xl overflow-hidden rounded-md border border-ink/16 bg-surface shadow-[0_28px_80px_rgba(0,0,0,0.8)]">
-        <div class="flex items-center justify-between gap-2 border-b border-ink/10 px-4 py-3">
-          <div class="flex items-center gap-2.5">
-            <span
-              class="inline-flex h-6 min-w-[26px] items-center justify-center rounded-[3px] px-1.5 font-mono text-xs font-bold text-[#fbf7ee]"
-              style="background-color: {group.accent};"
-            >
-              {focusedDesign.badge}
-            </span>
-            <div>
-              <strong class="text-sm text-ink">{focusedDesign.name}</strong>
-              <span class="ml-2 font-mono text-xs text-ink-dim">{focusedDesign.id}</span>
-            </div>
-          </div>
+  <ModalDialog
+    open={Boolean(focusedDesign)}
+    onClose={() => (focusedId = null)}
+    eyebrow={focusedDesign ? `${groups[focusedDesign.group].label} · ${focusedDesign.id}` : ''}
+    title={focusedDesign?.name ?? ''}
+    maxWidth="42rem"
+  >
+    {#snippet headerExtra()}
+      {#if focusedDesign}
+        <span class="mr-1 font-mono text-[11px] text-ink-dim">
+          {focusedIndex + 1} / {filteredDesigns.length}
+        </span>
+        <Button
+          variant="surface"
+          size="sm"
+          icon={ArrowLeft01Icon}
+          iconSize={15}
+          aria-label="Previous"
+          title="Previous (Left Arrow)"
+          onclick={() => stepFocused(-1)}
+        />
+        <Button
+          variant="surface"
+          size="sm"
+          icon={ArrowRight01Icon}
+          iconSize={15}
+          aria-label="Next"
+          title="Next (Right Arrow)"
+          onclick={() => stepFocused(1)}
+        />
+      {/if}
+    {/snippet}
 
-          <div class="flex items-center gap-1.5">
-            <span class="mr-1 font-mono text-[11px] text-ink-dim">
-              {focusedIndex + 1} / {filteredDesigns.length}
-            </span>
-            <button
-              type="button"
-              onclick={() => stepFocused(-1)}
-              class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm border border-ink/12 bg-surface-raised text-ink-muted hover:text-ink"
-              title="Previous (Left Arrow)"
-            >
-              <Icon icon={ArrowLeft01Icon} size={15} strokeWidth={2} />
-            </button>
-            <button
-              type="button"
-              onclick={() => stepFocused(1)}
-              class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm border border-ink/12 bg-surface-raised text-ink-muted hover:text-ink"
-              title="Next (Right Arrow)"
-            >
-              <Icon icon={ArrowRight01Icon} size={15} strokeWidth={2} />
-            </button>
-            <button
-              type="button"
-              onclick={() => (focusedId = null)}
-              class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm border border-ink/12 bg-surface-raised text-ink-muted hover:text-ink"
-              title="Close (Esc)"
-            >
-              <Icon icon={Cancel01Icon} size={15} strokeWidth={2} />
-            </button>
-          </div>
-        </div>
-
+    {#if focusedDesign}
+      <div class="-mx-5 -my-4 flex flex-col">
         <div class="grid grid-cols-1 gap-4 bg-[#141613] p-5 {previews ? 'sm:grid-cols-2' : ''}">
           {#if previews}
             <div class="flex flex-col items-center gap-2">
@@ -543,33 +489,15 @@
         </div>
 
         {#if REVIEW}
-          {@const entry = getEntry(focusedDesign.id)}
-          <div class="flex flex-col gap-2.5 border-t border-ink/10 p-4">
-            <div class="flex items-center gap-2 font-mono text-[11px]">
-              <span class="text-ink-dim">Status:</span>
-              {#each STATUSES as btn}
-                <button
-                  type="button"
-                  onclick={() => setStatus(focusedDesign.id, btn.id)}
-                  class="cursor-pointer rounded-sm border px-3 py-1 transition-colors {entry.status === btn.id
-                    ? btn.cls
-                    : 'border-ink/10 bg-canvas/60 text-ink-dim hover:text-ink'}"
-                >
-                  {btn.label}
-                </button>
-              {/each}
-            </div>
-
-            <textarea
-              rows={3}
-              value={entry.comment}
-              oninput={(e) => patchEntry(focusedDesign.id, { comment: e.currentTarget.value })}
-              placeholder="Describe what looks whacky or what to change..."
-              class="w-full resize-y rounded-sm border border-ink/12 bg-canvas/90 px-3 py-2 text-xs text-ink placeholder:text-ink-dim focus:border-sage/55 focus:outline-none"
-            ></textarea>
+          <div class="p-1.5">
+            {@render reviewEditor(
+              focusedDesign.id,
+              3,
+              'Describe what looks whacky or what to change...',
+            )}
           </div>
         {/if}
       </div>
-    </div>
-  {/if}
+    {/if}
+  </ModalDialog>
 </div>

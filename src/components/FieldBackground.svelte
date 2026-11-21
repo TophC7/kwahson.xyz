@@ -1,10 +1,6 @@
 <script lang="ts">
   const CELL = 26;
   const RADIUS_SQ = 185 * 185;
-  const COLOR_OCHRE = '#9f8665';
-  const COLOR_SAGE_CREST = '#8ea28a';
-  const COLOR_SAGE = '#7a8d76';
-  const COLOR_ASH = '#d5d7cf';
 
   let canvasEl = $state<HTMLCanvasElement | null>(null);
 
@@ -13,6 +9,13 @@
     if (!canvas) return;
     const ctx = canvas.getContext('2d', { alpha: true });
     if (!ctx) return;
+
+    const cs = getComputedStyle(canvas);
+    const readVar = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
+    const colorOchre = readVar('--color-ochre', '#9f8665');
+    const colorSageCrest = readVar('--color-sage-soft', '#9eb09a');
+    const colorSage = readVar('--color-sage', '#7a8d76');
+    const colorAsh = readVar('--color-ink', '#d5d7cf');
 
     const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
     let reduced = motionQuery.matches;
@@ -110,7 +113,7 @@
           if (energy > 0.74 || wake > 0.35) {
             const isOchrePeak = w2 > 0.48 && wake < 0.25;
             ctx.globalAlpha = (0.14 + (energy - 0.5) * 0.56) * v;
-            ctx.fillStyle = isOchrePeak ? COLOR_OCHRE : COLOR_SAGE_CREST;
+            ctx.fillStyle = isOchrePeak ? colorOchre : colorSageCrest;
 
             // Razor-sharp 1px crosshair at wave crests
             const arm = energy > 0.86 || wake > 0.5 ? 3 : 2;
@@ -120,7 +123,7 @@
             ctx.fillRect(rx, ry - arm, 1, arm * 2 + 1);
           } else {
             ctx.globalAlpha = (0.045 + energy * 0.16) * v;
-            ctx.fillStyle = energy > 0.54 ? COLOR_SAGE : COLOR_ASH;
+            ctx.fillStyle = energy > 0.54 ? colorSage : colorAsh;
             const size = energy > 0.56 ? 2 : 1.5;
             const half = size * 0.5;
             ctx.fillRect(x - half, y - half, size, size);
@@ -205,6 +208,6 @@
 
 <canvas
   bind:this={canvasEl}
-  class="pointer-events-none fixed inset-0 top-11 h-[calc(100%-2.75rem)] w-full"
+  class="pointer-events-none fixed inset-0 h-full w-full"
   aria-hidden="true"
 ></canvas>

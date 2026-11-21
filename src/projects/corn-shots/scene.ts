@@ -10,9 +10,9 @@ import {
 import { createBoardCamera, type Insets } from '../../lib/boardCamera';
 import { createBursts } from '../../lib/bursts';
 import { isGameKey } from '../../lib/hotkeys';
-import { buildMiniature, createStudioBuilder, type MiniatureId } from '../../lib/miniatures';
+import { createModelCache, createStudioBuilder, fitModel, type MiniatureId } from '../../lib/miniatures';
 import { createPastureKit } from '../../lib/pastureKit';
-import { addTableLights, buildPastureTable } from '../../lib/pastureTable';
+import { addTableLights, buildPastureTable, createPastureRenderer } from '../../lib/pastureTable';
 import { randomSeed } from '../../lib/rng';
 import { scoped } from '../../lib/scope';
 import { createCornAudio } from './audio';
@@ -73,6 +73,7 @@ export interface CornController {
 const GROUND_Y = 0.088;
 const SHOT_Y = GROUND_Y + 0.72;
 const MUZZLE_ORIGIN = new THREE.Vector3(...BAZOOKA_MUZZLE_LOCAL);
+const UP = new THREE.Vector3(0, 1, 0);
 
 function initialSeedFromUrl(): { seed: number; room: number } {
   const params = new URLSearchParams(window.location.search);
@@ -102,14 +103,9 @@ export function mountCornShots({
   insets: () => Insets;
   onState: (patch: Partial<CornHudState>) => void;
 }): CornController {
-  return scoped(({ signal, add, dispose }) => {
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.shadowMap.enabled = true;
-    viewport.appendChild(renderer.domElement);
-    add(() => {
-      renderer.dispose();
-      renderer.domElement.remove();
-    });
+  return scoped((scope) => {
+    const { signal, add, dispose } = scope;
+    const renderer = createPastureRenderer(viewport, scope, { shadows: true });
 
     const kit = createPastureKit();
     const studio = createStudioBuilder(kit);
@@ -121,7 +117,7 @@ export function mountCornShots({
     const propsGroup = new THREE.Group();
     const effectsGroup = new THREE.Group();
     scene.add(tableGroup, propsGroup, effectsGroup);
-    add(addTableLights(scene, 10));
+    add(addTableLights(scene, 10).dispose);
 
     buildPastureTable(kit, tableGroup, {
       cx: 0,
@@ -131,15 +127,28 @@ export function mountCornShots({
       checker: true,
     });
 
-    const templates = new Map<MiniatureId, THREE.Group>();
-    function modelFor(id: MiniatureId): THREE.Group {
-      let tmpl = templates.get(id);
-      if (!tmpl) {
-        tmpl = buildMiniature(studio, id);
-        templates.set(id, tmpl);
-      }
-      return tmpl.clone();
-    }
+    const modelFor = createModelCache(studio);
+
+    const dangerRingMat = new THREE.MeshStandardMaterial({
+      color: 0xf08c4b,
+      roughness: 0.85,
+      flatShading: true,
+      transparent: true,
+      opacity: 0.16,
+    });
+    const shieldMat = new THREE.MeshStandardMaterial({
+      color: SIGHT_MINT,
+      emissive: SIGHT_MINT,
+      emissiveIntensity: 0.45,
+      transparent: true,
+      opacity: 0.56,
+      side: THREE.DoubleSide,
+      roughness: 0.25,
+    });
+    add(() => {
+      dangerRingMat.dispose();
+      shieldMat.dispose();
+    });
 
     const bursts = createBursts(kit, effectsGroup);
     add(() => bursts.clear());
@@ -193,14 +202,19 @@ export function mountCornShots({
     let recoilKick = 0;
     let undoStack: Snapshot[] = [];
     let lastTickDeg = Math.round((aimYaw * 180) / Math.PI);
-    let draggingBoard = false;
-    let lastPointerX = 0;
     let clearDelay = 0;
 
     // Room visual registries
     const obstacleMeshes = new Map<string, { group: THREE.Group; def: ObstacleDef; pulse: number }>();
     const targetMeshes = new Map<string, { group: THREE.Group; state: TargetState; shieldMesh?: THREE.Mesh }>();
     const pumpkinMeshes = new Map<string, { group: THREE.Group; state: PumpkinState }>();
+
+    function disposeShieldGeos(): void {
+      for (const { shieldMesh } of targetMeshes.values()) {
+        shieldMesh?.geometry.dispose();
+      }
+    }
+    add(disposeShieldGeos);
 
     function enableShadows(root: THREE.Object3D): void {
       root.traverse((o) => {
@@ -236,20 +250,9 @@ export function mountCornShots({
 
     function createTractorMesh(obs: ObstacleDef): THREE.Group {
       const g = new THREE.Group();
-      const m = modelFor('tractor');
-      m.rotation.set(0, 0, 0);
-      const box = new THREE.Box3().setFromObject(m);
-      const size = box.getSize(new THREE.Vector3());
-      const targetLen = obs.halfLen * 2;
-      const scale = targetLen / Math.max(0.5, size.z);
-      m.scale.setScalar(scale);
-      m.position.set(
-        -((box.min.x + box.max.x) / 2) * scale,
-        -box.min.y * scale,
-        -((box.min.z + box.max.z) / 2) * scale,
-      );
-      enableShadows(m);
-      g.add(m);
+      const { model } = fitModel(modelFor('tractor'), obs.halfLen * 2);
+      enableShadows(model);
+      g.add(model);
       return g;
     }
 
@@ -269,6 +272,7 @@ export function mountCornShots({
     }
 
     function rebuildRoomMeshes() {
+      disposeShieldGeos();
       // Clear previous room objects except cowActor
       for (const { group } of obstacleMeshes.values()) propsGroup.remove(group);
       for (const { group } of targetMeshes.values()) propsGroup.remove(group);
@@ -312,21 +316,11 @@ export function mountCornShots({
       for (const tgt of roomState.targets) {
         const g = new THREE.Group();
         const miniId: MiniatureId = tgt.kind === 'scout' ? 'scout-pod' : 'alien';
-        const child = modelFor(miniId);
-        child.rotation.set(0, 0, 0);
-        const box = new THREE.Box3().setFromObject(child);
-        const size = box.getSize(new THREE.Vector3());
-        const scale = 0.88 / Math.max(0.4, Math.max(size.x, size.z));
-        child.scale.setScalar(scale);
-        child.position.set(
-          -((box.min.x + box.max.x) / 2) * scale,
-          -box.min.y * scale,
-          -((box.min.z + box.max.z) / 2) * scale,
-        );
-        child.traverse((o) => {
+        const { model } = fitModel(modelFor(miniId), 0.88);
+        model.traverse((o) => {
           if (o instanceof THREE.Mesh) o.castShadow = true;
         });
-        g.add(child);
+        g.add(model);
 
         let shieldMesh: THREE.Mesh | undefined;
         if (tgt.shielded) {
@@ -341,16 +335,7 @@ export function mountCornShots({
             -SHIELD_HALF_ARC,
             SHIELD_HALF_ARC * 2,
           );
-          const arcMat = new THREE.MeshStandardMaterial({
-            color: SIGHT_MINT,
-            emissive: SIGHT_MINT,
-            emissiveIntensity: 0.45,
-            transparent: true,
-            opacity: 0.56,
-            side: THREE.DoubleSide,
-            roughness: 0.25,
-          });
-          shieldMesh = new THREE.Mesh(arcGeo, arcMat);
+          shieldMesh = new THREE.Mesh(arcGeo, shieldMat);
           shieldMesh.position.y = 0.54;
           g.add(shieldMesh);
         }
@@ -363,28 +348,24 @@ export function mountCornShots({
 
       for (const p of roomState.pumpkins) {
         const g = new THREE.Group();
-        const child = modelFor('pumpkin');
-        const box = new THREE.Box3().setFromObject(child);
-        const size = box.getSize(new THREE.Vector3());
-        const scale = 0.86 / Math.max(0.4, Math.max(size.x, size.z));
-        child.scale.setScalar(scale);
-        child.position.set(
-          -((box.min.x + box.max.x) / 2) * scale,
-          -box.min.y * scale,
-          -((box.min.z + box.max.z) / 2) * scale,
-        );
-        child.traverse((o) => {
+        const { model } = fitModel(modelFor('pumpkin'), 0.86);
+        model.traverse((o) => {
           if (o instanceof THREE.Mesh) o.castShadow = true;
         });
-        g.add(child);
+        g.add(model);
         g.position.set(p.x, GROUND_Y, p.z);
         propsGroup.add(g);
         pumpkinMeshes.set(p.id, { group: g, state: p });
 
-        const dangerRing = kit.part(effectsGroup, 'ring', 0xf08c4b, [PUMPKIN_BLAST_RADIUS - 0.05, 0.04, PUMPKIN_BLAST_RADIUS + 0.03], [p.x, GROUND_Y + 0.02, p.z]);
+        const dangerRing = kit.part(
+          effectsGroup,
+          'ring',
+          0xf08c4b,
+          [PUMPKIN_BLAST_RADIUS - 0.05, 0.04, PUMPKIN_BLAST_RADIUS + 0.03],
+          [p.x, GROUND_Y + 0.02, p.z],
+          dangerRingMat,
+        );
         dangerRing.rotation.x = -Math.PI / 2;
-        (dangerRing.material as THREE.MeshStandardMaterial).transparent = true;
-        (dangerRing.material as THREE.MeshStandardMaterial).opacity = 0.16;
         pumpkinDangerRings.set(p.id, dangerRing);
       }
     }
@@ -459,13 +440,12 @@ export function mountCornShots({
         for (const [pid, r] of pumpkinDangerRings) {
           const p = roomState.pumpkins.find((item) => item.id === pid);
           r.visible = Boolean(p?.alive);
-          (r.material as THREE.MeshStandardMaterial).opacity = 0.16;
         }
         return;
       }
 
       const trace = traceRay(roomState.cow.x, roomState.cow.z, aimYaw, roomState, simTime, PREVIEW_BOUNCES);
-      const muzzleWorld = MUZZLE_ORIGIN.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), aimYaw).add(cowActor.mesh.position);
+      const muzzleWorld = MUZZLE_ORIGIN.clone().applyAxisAngle(UP, aimYaw).add(cowActor.mesh.position);
 
       for (let i = 0; i < trace.segments.length; i++) {
         const seg = trace.segments[i];
@@ -481,7 +461,6 @@ export function mountCornShots({
       for (const [pid, ring] of pumpkinDangerRings) {
         const p = roomState.pumpkins.find((item) => item.id === pid);
         ring.visible = Boolean(p?.alive);
-        (ring.material as THREE.MeshStandardMaterial).opacity = 0.16;
       }
     }
 
@@ -523,9 +502,6 @@ export function mountCornShots({
     }
 
     let hudZoomed = false;
-    let lastPressType: string = 'mouse';
-    let lastPressButton = 0;
-    let lastPressShift = false;
 
     const camera = createBoardCamera({
       viewport,
@@ -537,31 +513,28 @@ export function mountCornShots({
       insets,
       signal,
       onHover(x, y, event) {
-        if (phase !== 'aiming' || event.pointerType !== 'mouse' || draggingBoard) return;
-        if (event.shiftKey) return; // Fine nudge mode via arrow keys or drag when Shift held
+        if (phase !== 'aiming' || event.pointerType !== 'mouse' || event.shiftKey) return;
         aimAtClientPoint(x, y);
       },
       onPress(e) {
         audio.unlock();
-        lastPressType = e.pointerType;
-        lastPressButton = e.button;
-        lastPressShift = e.shiftKey;
         if (phase !== 'aiming') return;
-        if (!hudZoomed) {
-          draggingBoard = true;
-          lastPointerX = e.clientX;
-          if (!e.shiftKey && e.pointerType !== 'mouse') {
-            aimAtClientPoint(e.clientX, e.clientY);
-          }
+        if (!hudZoomed && !e.shiftKey && e.pointerType !== 'mouse') {
+          aimAtClientPoint(e.clientX, e.clientY);
         }
       },
-      onRelease() {
-        draggingBoard = false;
-      },
-      onTap(x, y) {
+      onDrag(dx, _dy, event) {
         if (phase !== 'aiming') return;
-        if (lastPressType === 'mouse' && lastPressButton === 0) {
-          if (!lastPressShift) aimAtClientPoint(x, y);
+        if (event.shiftKey) {
+          setAimYaw(aimYaw + dx * 0.0022, true);
+        } else {
+          aimAtClientPoint(event.clientX, event.clientY);
+        }
+      },
+      onTap(x, y, event) {
+        if (phase !== 'aiming') return;
+        if (event.pointerType === 'mouse' && event.button === 0) {
+          if (!event.shiftKey) aimAtClientPoint(x, y);
           fire();
         } else {
           aimAtClientPoint(x, y);
@@ -581,22 +554,6 @@ export function mountCornShots({
         maxZ: BOARD_HALF_H + 0.5,
       },
       0.4,
-    );
-
-    // Fine pointer drag support while captured by canvas
-    renderer.domElement.addEventListener(
-      'pointermove',
-      (e) => {
-        if (!draggingBoard || phase !== 'aiming' || e.buttons === 0) return;
-        if (e.shiftKey) {
-          const dx = e.clientX - lastPointerX;
-          lastPointerX = e.clientX;
-          setAimYaw(aimYaw + dx * 0.0022, true);
-        } else {
-          aimAtClientPoint(e.clientX, e.clientY);
-        }
-      },
-      { signal },
     );
 
     const fire = () => {
@@ -630,13 +587,16 @@ export function mountCornShots({
           e.preventDefault();
           if (phase === 'aiming') setAimYaw(aimYaw - (step * Math.PI) / 180, true);
         } else if (e.key === ' ' || e.key === 'Enter') {
+          if (e.repeat) return;
           e.preventDefault();
           if (phase === 'aiming') fire();
           else if (phase === 'cleared') controller.nextRoom();
         } else if (e.key === 'r' || e.key === 'R') {
+          if (e.repeat) return;
           e.preventDefault();
           controller.retryRoom();
         } else if (e.key === 'z' || e.key === 'Z') {
+          if (e.repeat) return;
           e.preventDefault();
           controller.undo();
         }

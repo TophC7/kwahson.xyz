@@ -3,7 +3,7 @@ import { isGameKey } from '../../lib/hotkeys';
 import { scoped } from '../../lib/scope';
 import { createBoardCamera, type Insets } from '../../lib/boardCamera';
 import { createBursts } from '../../lib/bursts';
-import { addTableLights, buildPastureTable } from '../../lib/pastureTable';
+import { addTableLights, buildPastureTable, createPastureRenderer } from '../../lib/pastureTable';
 import { randomSeed } from '../../lib/rng';
 import { createPastureKit } from '../../lib/pastureKit';
 import { createMoojongAudio } from './audio';
@@ -176,16 +176,9 @@ export function mountMoojong({
   chrome: Element[];
   onState: (patch: Partial<MoojongHudState>) => void;
 }): MoojongController {
-  return scoped(({ signal, add, dispose }) => {
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    viewport.appendChild(renderer.domElement);
-    add(() => {
-      renderer.dispose();
-      renderer.domElement.remove();
-    });
+  return scoped((scope) => {
+    const { signal, add, dispose } = scope;
+    const renderer = createPastureRenderer(viewport, scope, { shadows: true });
 
     const kit = createPastureKit();
     add(() => kit.dispose());
@@ -198,7 +191,7 @@ export function mountMoojong({
 
     // Warm Pasture Patrol studio lighting with soft upper-left sun casting
     // depth-revealing shadows down and to the right of every tile stack.
-    add(addTableLights(scene, -7));
+    add(addTableLights(scene, -7).dispose);
 
     const tileGeos = createTileGeometries();
     add(() => tileGeos.dispose());

@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { BAZOOKA_MUZZLE_LOCAL, buildBazookaCow, createSightBeams, wrapCornShell } from '../../lib/bazookaCow';
 import { createBursts } from '../../lib/bursts';
 import { isGameKey } from '../../lib/hotkeys';
-import { buildMiniature, createStudioBuilder, type MiniatureId } from '../../lib/miniatures';
+import { createModelCache, createStudioBuilder, type MiniatureId } from '../../lib/miniatures';
 import { createPastureKit } from '../../lib/pastureKit';
-import { buildPastureTable } from '../../lib/pastureTable';
+import { addTableLights, buildPastureTable, createPastureRenderer } from '../../lib/pastureTable';
 import { randomSeed } from '../../lib/rng';
 import { scoped } from '../../lib/scope';
 import { createArenaAudio } from './audio';
@@ -18,7 +18,6 @@ import {
   type PowerupId,
   type Season,
 } from './data';
-import { buildUdderModel, type UdderModelId } from './models';
 import {
   ARENA_HALF,
   applyPowerup,
@@ -32,7 +31,7 @@ import {
   type SimState,
 } from './sim';
 
-export type AimMode = 'cursor' | 'charge' | 'auto';
+type AimMode = 'cursor' | 'charge' | 'auto';
 
 export interface ArenaHudState {
   seed: number;
@@ -64,7 +63,7 @@ export interface ArenaHudState {
   status: string;
 }
 
-export interface RestartOptions {
+interface RestartOptions {
   seed?: number;
   season?: Season;
   daytime?: DayTime;
@@ -90,16 +89,9 @@ export function mountUdderHavoc({
   viewport: HTMLElement;
   onState: (patch: Partial<ArenaHudState>) => void;
 }): ArenaController {
-  return scoped(({ signal, add, dispose }) => {
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    viewport.appendChild(renderer.domElement);
-    add(() => {
-      renderer.dispose();
-      renderer.domElement.remove();
-    });
+  return scoped(scope => {
+    const { signal, add, dispose } = scope;
+    const renderer = createPastureRenderer(viewport, scope, { shadows: true });
 
     const scene = new THREE.Scene();
     const kit = createPastureKit();
@@ -107,38 +99,10 @@ export function mountUdderHavoc({
     const studio = createStudioBuilder(kit);
     add(() => studio.dispose());
 
-    const templates = new Map<MiniatureId, THREE.Group>();
-    function miniature(id: MiniatureId): THREE.Group {
-      let tpl = templates.get(id);
-      if (!tpl) {
-        tpl = buildMiniature(studio, id);
-        templates.set(id, tpl);
-      }
-      return tpl.clone();
-    }
+    const model = createModelCache(studio);
 
-    const udderTemplates = new Map<UdderModelId, THREE.Group>();
-    function udderModel(id: UdderModelId): THREE.Group {
-      let tpl = udderTemplates.get(id);
-      if (!tpl) {
-        tpl = buildUdderModel(studio, id);
-        udderTemplates.set(id, tpl);
-      }
-      return tpl.clone();
-    }
-
-    const hemiLight = new THREE.HemisphereLight(0xfff8e8, 0x709675, 2.05);
-    const sunLight = new THREE.DirectionalLight(0xffedd0, 2.4);
-    sunLight.castShadow = true;
-    sunLight.shadow.mapSize.set(2048, 2048);
-    Object.assign(sunLight.shadow.camera, { near: 2, far: 54, left: -16, right: 16, top: 16, bottom: -16 });
-    sunLight.shadow.camera.updateProjectionMatrix();
-    sunLight.shadow.bias = -0.0005;
-    sunLight.shadow.normalBias = 0.025;
-    const fillLight = new THREE.DirectionalLight(0xd8e8d6, 0.55);
-    fillLight.position.set(10, 12, -8);
-    scene.add(hemiLight, sunLight, fillLight);
-    add(() => sunLight.shadow.dispose());
+    const lights = addTableLights(scene, 14, { shadowSpan: 16, shadowFar: 54 });
+    add(() => lights.dispose());
 
     const tableGroup = new THREE.Group();
     const decorGroup = new THREE.Group();
@@ -154,7 +118,15 @@ export function mountUdderHavoc({
     const sight = createSightBeams(kit, scene, 1);
     add(() => sight.dispose());
 
-    const cow = buildBazookaCow(kit, () => miniature('corn'));
+    const sniperBeams = createSightBeams(kit, entityRoot, 0, {
+      color: 0xff6e7f,
+      opacity: 0.82,
+      lockedColor: 0xff6e7f,
+      lockedOpacity: 0.82,
+    });
+    add(() => sniperBeams.dispose());
+
+    const cow = buildBazookaCow(kit, () => model('corn'));
     cow.mesh.traverse(obj => {
       if (obj instanceof THREE.Mesh) obj.castShadow = true;
     });
@@ -203,7 +175,6 @@ export function mountUdderHavoc({
     const beeMeshes = new Map<number, THREE.Object3D>();
     const pickupMeshes = new Map<number, { group: THREE.Group; legs?: { mesh: THREE.Mesh; phase: number }[] }>();
     const milkWaves: { group: THREE.Group; ring: THREE.Mesh; disc: THREE.Mesh; ringMat: THREE.MeshBasicMaterial; discMat: THREE.MeshBasicMaterial; radius: number; life: number; duration: number }[] = [];
-    const sniperBeams: THREE.Mesh[] = [];
 
     const popcornGeo = new THREE.IcosahedronGeometry(0.18, 0);
     const xpMat = new THREE.MeshStandardMaterial({
@@ -233,7 +204,6 @@ export function mountUdderHavoc({
     const plasmaFillMat = new THREE.MeshBasicMaterial({ color: 0xff6e7f, transparent: true, opacity: 0.24, depthWrite: false });
     const slamRingMat = new THREE.MeshBasicMaterial({ color: 0xff7a59, transparent: true, opacity: 0.9, depthWrite: false });
     const slamFillMat = new THREE.MeshBasicMaterial({ color: 0xff7a59, transparent: true, opacity: 0.22, depthWrite: false });
-    const sniperLineMat = new THREE.MeshBasicMaterial({ color: 0xff6e7f, transparent: true, opacity: 0.82, depthWrite: false });
     const shadowMat = new THREE.MeshBasicMaterial({ color: 0x1c2419, transparent: true, opacity: 0.35, depthWrite: false });
     add(() => {
       popcornGeo.dispose();
@@ -248,7 +218,6 @@ export function mountUdderHavoc({
       plasmaFillMat.dispose();
       slamRingMat.dispose();
       slamFillMat.dispose();
-      sniperLineMat.dispose();
       shadowMat.dispose();
     });
 
@@ -264,7 +233,7 @@ export function mountUdderHavoc({
 
     function buildObstacleVisual(kind: ObstacleModelKind): THREE.Object3D {
       if (kind === 'corn-wall' || kind === 'barn' || kind === 'silo' || kind === 'well' || kind === 'stump') {
-        const m = miniature(kind);
+        const m = model(kind);
         if (kind === 'barn') m.scale.setScalar(1.45);
         else if (kind === 'silo') m.scale.setScalar(1.25);
         else if (kind === 'well') m.scale.setScalar(1.1);
@@ -278,14 +247,14 @@ export function mountUdderHavoc({
       const seasonDef = SEASON_DEFS[sim.season];
       const dayDef = DAYTIME_DEFS[sim.daytime];
 
-      hemiLight.color.setHex(dayDef.hemiSky);
-      hemiLight.groundColor.setHex(dayDef.hemiGround);
-      hemiLight.intensity = dayDef.hemiIntensity;
-      sunLight.color.setHex(dayDef.sunColor);
-      sunLight.intensity = dayDef.sunIntensity;
-      sunLight.position.set(...dayDef.sunPos);
-      fillLight.color.setHex(dayDef.fillColor);
-      fillLight.intensity = dayDef.fillIntensity;
+      lights.hemi.color.setHex(dayDef.hemiSky);
+      lights.hemi.groundColor.setHex(dayDef.hemiGround);
+      lights.hemi.intensity = dayDef.hemiIntensity;
+      lights.sun.color.setHex(dayDef.sunColor);
+      lights.sun.intensity = dayDef.sunIntensity;
+      lights.sun.position.set(...dayDef.sunPos);
+      lights.fill.color.setHex(dayDef.fillColor);
+      lights.fill.intensity = dayDef.fillIntensity;
 
       buildPastureTable(kit, tableGroup, {
         cx: 0,
@@ -305,12 +274,12 @@ export function mountUdderHavoc({
         [edge, edge],
       ];
       corners.forEach(([x, z], i) => {
-        const deco = miniature(seasonDef.decor[i % seasonDef.decor.length]);
+        const deco = model(seasonDef.decor[i % seasonDef.decor.length]);
         deco.position.set(x, 0.08, z);
         deco.scale.setScalar(0.95);
         decorGroup.add(deco);
         if (dayDef.lanterns) {
-          const lantern = miniature('lantern');
+          const lantern = model('lantern');
           lantern.position.set(x + (x > 0 ? -0.9 : 0.9), 0.08, z);
           lantern.scale.setScalar(0.85);
           decorGroup.add(lantern);
@@ -348,7 +317,6 @@ export function mountUdderHavoc({
         w.ringMat.dispose();
         w.discMat.dispose();
       }
-      for (const s of sniperBeams) entityRoot.remove(s);
       enemyMeshes.clear();
       projMeshes.clear();
       beamMeshes.clear();
@@ -356,10 +324,11 @@ export function mountUdderHavoc({
       beeMeshes.clear();
       pickupMeshes.clear();
       milkWaves.length = 0;
-      sniperBeams.length = 0;
       bursts.clear();
       sight.hideFrom(0);
+      sniperBeams.hideFrom(0);
     }
+    add(clearDynamicMeshes);
 
     function pushHud() {
       const boss = sim.enemies.find(e => e.kind === 'boss');
@@ -400,62 +369,62 @@ export function mountUdderHavoc({
 
     function spawnEnemyMesh(e: SimEnemy) {
       const root = new THREE.Group();
-      let model: THREE.Object3D;
+      let enemyModel: THREE.Object3D;
       let shadow: THREE.Mesh | undefined;
       if (e.kind === 'boss') {
         const bk = e.bossKind ?? 'harvester';
-        model = udderModel(`boss-${bk}`);
+        enemyModel = model(`boss-${bk}`);
         if (bk === 'harvester') {
-          model.position.y = 2.6;
+          enemyModel.position.y = 2.6;
         } else if (bk === 'queen') {
-          model.position.y = 0.65;
+          enemyModel.position.y = 0.65;
         } else {
-          model.position.y = 0.08;
+          enemyModel.position.y = 0.08;
         }
         shadow = kit.part(root, 'disc', 0, [e.radius * 0.95, e.radius * 0.95, 1], [0, 0.1, 0], shadowMat);
         shadow.rotation.x = -Math.PI / 2;
       } else if (e.kind === 'saucer') {
-        model = kit.makeUfo();
-        model.scale.setScalar(0.92);
-        model.position.y = 2.35;
+        enemyModel = kit.makeUfo();
+        enemyModel.scale.setScalar(0.92);
+        enemyModel.position.y = 2.35;
         shadow = kit.part(root, 'disc', 0, [e.radius * 0.95, e.radius * 0.95, 1], [0, 0.1, 0], shadowMat);
         shadow.rotation.x = -Math.PI / 2;
       } else if (e.kind === 'skimmer') {
-        model = miniature('scout-pod');
-        model.scale.setScalar(0.95);
-        model.position.y = 0.65;
+        enemyModel = model('scout-pod');
+        enemyModel.scale.setScalar(0.95);
+        enemyModel.position.y = 0.65;
         shadow = kit.part(root, 'disc', 0, [0.42, 0.42, 1], [0, 0.1, 0], shadowMat);
         shadow.rotation.x = -Math.PI / 2;
       } else if (e.kind === 'sniper') {
-        model = udderModel('sniper');
-        model.position.y = 0.68;
+        enemyModel = model('sniper');
+        enemyModel.position.y = 0.68;
         shadow = kit.part(root, 'disc', 0, [0.4, 0.4, 1], [0, 0.1, 0], shadowMat);
         shadow.rotation.x = -Math.PI / 2;
       } else if (e.kind === 'splitter') {
-        model = udderModel('splitter');
-        model.position.y = 0.08;
+        enemyModel = model('splitter');
+        enemyModel.position.y = 0.08;
       } else if (e.kind === 'sprout') {
         const sproutIds: MiniatureId[] = ['sprout-red', 'sprout-yellow', 'sprout-blue'];
-        model = miniature(sproutIds[e.id % 3]);
-        model.scale.setScalar(0.95);
-        model.position.y = 0.08;
+        enemyModel = model(sproutIds[e.id % 3]);
+        enemyModel.scale.setScalar(0.95);
+        enemyModel.position.y = 0.08;
       } else if (e.kind === 'brute') {
-        model = miniature('brute');
-        model.scale.setScalar(1.1);
-        model.position.y = 0.08;
+        enemyModel = model('brute');
+        enemyModel.scale.setScalar(1.1);
+        enemyModel.position.y = 0.08;
       } else if (e.kind === 'lobber') {
-        model = miniature('lobber');
-        model.scale.setScalar(1.0);
-        model.position.y = 0.08;
+        enemyModel = model('lobber');
+        enemyModel.scale.setScalar(1.0);
+        enemyModel.position.y = 0.08;
       } else {
-        model = miniature('alien');
-        model.scale.setScalar(1.0);
-        model.position.y = 0.08;
+        enemyModel = model('alien');
+        enemyModel.scale.setScalar(1.0);
+        enemyModel.position.y = 0.08;
       }
-      model.traverse(c => {
+      enemyModel.traverse(c => {
         if (c instanceof THREE.Mesh) c.castShadow = true;
       });
-      root.add(model);
+      root.add(enemyModel);
       root.position.set(e.x, 0, e.z);
       entityRoot.add(root);
       enemyMeshes.set(e.id, { root, shadow });
@@ -466,12 +435,12 @@ export function mountUdderHavoc({
       if (pr.popcorn) {
         mesh = new THREE.Mesh(popcornGeo, popcornMat);
       } else if (pr.gold) {
-        mesh = wrapCornShell(miniature('corn'), 1.2);
+        mesh = wrapCornShell(model('corn'), 1.2);
         mesh.traverse(c => {
           if (c instanceof THREE.Mesh) c.material = goldShellMat;
         });
       } else {
-        mesh = wrapCornShell(miniature('corn'), 0.85);
+        mesh = wrapCornShell(model('corn'), 0.85);
       }
       mesh.position.set(pr.x, 0.93, pr.z);
       entityRoot.add(mesh);
@@ -495,11 +464,11 @@ export function mountUdderHavoc({
       ring.rotation.x = -Math.PI / 2;
       let drop: THREE.Object3D | undefined;
       if (b.kind === 'mortar') {
-        drop = miniature('pumpkin');
+        drop = model('pumpkin');
         drop.position.set(0, 6, 0);
         group.add(drop);
       } else if (b.kind === 'enemyMortar') {
-        drop = udderModel('plasma-orb');
+        drop = model('plasma-orb');
         drop.position.set(0, 6, 0);
         group.add(drop);
       }
@@ -554,27 +523,31 @@ export function mountUdderHavoc({
     let aimStickActive = false;
 
     window.addEventListener('keydown', e => {
+      if (sim.pendingChoices && !paused && !sim.ended && ['Digit1', 'Digit2', 'Digit3'].includes(e.code)) {
+        if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+        const idx = Number(e.code.slice(-1)) - 1;
+        const pick = sim.pendingChoices[idx];
+        if (pick) controller.pickPowerup(pick);
+        return;
+      }
       if (!isGameKey(e)) return;
       audio.unlock();
       if (e.code === 'Escape') {
         e.preventDefault();
+        if (e.repeat) return;
         if (!sim.ended && !sim.pendingChoices) {
           paused = !paused;
           pushHud();
         }
         return;
       }
-      if (sim.pendingChoices && ['Digit1', 'Digit2', 'Digit3'].includes(e.code)) {
-        const idx = Number(e.code.slice(-1)) - 1;
-        const pick = sim.pendingChoices[idx];
-        if (pick) controller.pickPowerup(pick);
-        return;
-      }
       if (e.code === 'KeyM') {
+        if (e.repeat) return;
         controller.toggleMute();
         return;
       }
       if (e.code === 'KeyQ') {
+        if (e.repeat) return;
         controller.toggleAutoAim();
         return;
       }
@@ -667,34 +640,26 @@ export function mountUdderHavoc({
           entry = enemyMeshes.get(e.id)!;
         }
         entry.root.position.set(e.x, 0, e.z);
-        const model = entry.root.children[0];
+        const enemyObj = entry.root.children[0];
         if (e.kind === 'saucer' || (e.kind === 'boss' && e.bossKind !== 'strider')) {
-          model.rotation.y += dt * (e.kind === 'boss' ? 1.1 : 2.1);
-          if (model.userData.orbit instanceof THREE.Object3D) {
-            model.userData.orbit.rotation.y -= dt * 3.1;
+          enemyObj.rotation.y += dt * (e.kind === 'boss' ? 1.1 : 2.1);
+          if (enemyObj.userData.orbit instanceof THREE.Object3D) {
+            enemyObj.userData.orbit.rotation.y -= dt * 3.1;
           }
         } else {
           entry.root.rotation.y = Math.atan2(pl.x - e.x, pl.z - e.z);
         }
         if (e.kind === 'sniper' && e.lockTimer > 0) {
-          let beam = sniperBeams[sniperIdx];
-          if (!beam) {
-            beam = kit.part(entityRoot, 'box', 0, [1, 1, 1], [0, 0, 0], sniperLineMat);
-            sniperBeams.push(beam);
-          }
           sniperStart.set(e.x, 0.9, e.z);
           sniperEnd.set(e.lockX, 0.9, e.lockZ);
           const w = e.lockTimer < 0.35 ? 0.14 : 0.07;
-          beam.visible = true;
-          beam.position.copy(sniperStart).lerp(sniperEnd, 0.5);
-          beam.scale.set(w, w, sniperStart.distanceTo(sniperEnd));
-          beam.lookAt(sniperEnd);
+          sniperBeams.setSegment(sniperIdx, sniperStart, sniperEnd, w);
           sniperIdx++;
         }
         const pop = e.flash > 0 ? 1.15 : 1;
         entry.root.scale.setScalar(pop);
       }
-      for (let s = sniperIdx; s < sniperBeams.length; s++) sniperBeams[s].visible = false;
+      sniperBeams.hideFrom(sniperIdx);
       for (const [id, entry] of enemyMeshes) {
         if (!activeEnemies.has(id)) {
           entityRoot.remove(entry.root);
@@ -772,7 +737,7 @@ export function mountUdderHavoc({
         activeBees.add(bee.id);
         let mesh = beeMeshes.get(bee.id);
         if (!mesh) {
-          mesh = miniature('bee');
+          mesh = model('bee');
           mesh.scale.setScalar(0.85);
           entityRoot.add(mesh);
           beeMeshes.set(bee.id, mesh);
