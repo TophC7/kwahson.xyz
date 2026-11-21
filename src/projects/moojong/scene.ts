@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createBoardCamera } from '../../lib/boardCamera';
+import { createBoardCamera, type Insets } from '../../lib/boardCamera';
 import { createBursts } from '../../lib/bursts';
 import { buildPastureTable } from '../../lib/pastureTable';
 import { randomSeed } from '../../lib/rng';
@@ -71,6 +71,7 @@ export interface MoojongController {
   toggleMute(): void;
   toggleHighlightFree(): void;
   resetView(): void;
+  refit(): void;
   destroy(): void;
   readonly previews: Record<string, string>;
 }
@@ -145,7 +146,7 @@ function createTileGeometries() {
 
   // Outer glowing selection / hint rim slightly larger than tile top
   const outerRim = createRoundedRectShape(TILE_W * 1.03, TILE_D * 1.03, 0.12);
-  const hole = createRoundedRectShape(TILE_W * 0.93, TILE_D * 0.93, 0.085);
+  const hole = createRoundedRectShape(TILE_W * 0.89, TILE_D * 0.89, 0.07);
   outerRim.holes.push(hole);
   const rimGeo = new THREE.ShapeGeometry(outerRim);
   rimGeo.rotateX(-Math.PI / 2);
@@ -171,9 +172,11 @@ function createTileGeometries() {
 
 export function mountMoojong({
   viewport,
+  insets,
   onState,
 }: {
   viewport: HTMLElement;
+  insets: (width: number, height: number) => Insets;
   onState: (patch: Partial<MoojongHudState>) => void;
 }): MoojongController {
   const cleanups: (() => void)[] = [];
@@ -482,8 +485,12 @@ export function mountMoojong({
       });
     }
 
-    function loadBoard(difficulty: Difficulty, seed: number, announce?: string) {
-      currentBoard = generateBoard(difficulty, seed);
+    function isPortrait() {
+      return viewport.clientWidth < viewport.clientHeight;
+    }
+
+    function loadBoard(difficulty: Difficulty, seed: number, announce?: string, portrait = isPortrait()) {
+      currentBoard = generateBoard(difficulty, seed, portrait);
       clearTileMeshes();
 
       selectedId = null;
@@ -499,8 +506,8 @@ export function mountMoojong({
 
       computeBoardBounds(currentBoard.tiles);
       buildPastureTable(kit, tableGroup, {
-        spanX: Math.max(9.5, boardBounds.maxX - boardBounds.minX + 2.2),
-        spanZ: Math.max(7.5, boardBounds.maxZ - boardBounds.minZ + 2.0),
+        spanX: boardBounds.maxX - boardBounds.minX + (portrait ? 0.55 : 2.2),
+        spanZ: boardBounds.maxZ - boardBounds.minZ + (portrait ? 0.6 : 2.0),
         cx: (boardBounds.minX + boardBounds.maxX) / 2,
         cz: (boardBounds.minZ + boardBounds.maxZ) / 2,
         checker: true,
@@ -698,7 +705,7 @@ export function mountMoojong({
 
     function reshuffle() {
       if (!currentBoard || phase === 'won') return;
-      const { tiles: nextTiles, flattened } = reshuffleRemaining(currentBoard.tiles);
+      const { tiles: nextTiles, flattened } = reshuffleRemaining(currentBoard.tiles, currentBoard.portrait);
       currentBoard.tiles = nextTiles;
       reshufflesUsed++;
       phase = 'playing';
@@ -756,13 +763,12 @@ export function mountMoojong({
       viewport,
       renderer,
       offset: CAM_OFFSET,
-      pad: { x: 1.35, z: 1.25 },
-      maxZoom: MAX_ZOOM,
-      insets: (w, h) => {
-        const v = w < 640 ? 0.74 : 0.78;
-        const hz = w < 640 ? 0.94 : 0.92;
-        return { top: h * (1 - v) / 2, bottom: h * (1 - v) / 2, left: w * (1 - hz) / 2, right: w * (1 - hz) / 2 };
+      pad: {
+        get x() { return isPortrait() ? 0.12 : 1.35; },
+        get z() { return isPortrait() ? 0.15 : 1.25; },
       },
+      maxZoom: MAX_ZOOM,
+      insets,
       signal,
       onPress: () => audio.unlock(),
       onTap: (x, y) => {
@@ -905,8 +911,9 @@ export function mountMoojong({
           v.rimMat.color.setHex(0xe8bd5b);
           v.rimMat.opacity = 0.85 + Math.sin(clockTime * 6) * 0.15;
         } else if (isHinted) {
-          v.rimMat.color.setHex(0x9eb09a);
-          v.rimMat.opacity = 0.5 + (Math.sin(clockTime * 5.2) * 0.5 + 0.5) * 0.5;
+          // Bright cyan: reads against the green felt, ivory tiles, and the gold selection rim.
+          v.rimMat.color.setHex(0x4fe0ff);
+          v.rimMat.opacity = 0.75 + (Math.sin(clockTime * 5.2) * 0.5 + 0.5) * 0.25;
         } else if (v.hoverAmount > 0.05) {
           v.rimMat.color.setHex(0xd5d7cf);
           v.rimMat.opacity = v.hoverAmount * 0.55;
@@ -944,9 +951,9 @@ export function mountMoojong({
     rafId = requestAnimationFrame(tick);
     cleanups.push(() => cancelAnimationFrame(rafId));
 
-    function deal(difficulty: Difficulty, seed: number, announce?: string) {
+    function deal(difficulty: Difficulty, seed: number, announce?: string, portrait = isPortrait()) {
       audio.playUiClick(true);
-      loadBoard(difficulty, seed, announce);
+      loadBoard(difficulty, seed, announce, portrait);
     }
 
     return {
@@ -955,7 +962,7 @@ export function mountMoojong({
         if (currentBoard) deal(currentBoard.difficulty, randomSeed());
       },
       retryBoard() {
-        if (currentBoard) deal(currentBoard.difficulty, currentBoard.seed, `Retrying ${currentBoard.layoutName}`);
+        if (currentBoard) deal(currentBoard.difficulty, currentBoard.seed, `Retrying ${currentBoard.layoutName}`, currentBoard.portrait);
       },
       reshuffle,
       undo,
@@ -963,6 +970,7 @@ export function mountMoojong({
       toggleMute,
       toggleHighlightFree,
       resetView,
+      refit: cam.refit,
       previews: atlas.previews,
       destroy: runCleanups,
     };

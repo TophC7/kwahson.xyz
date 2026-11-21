@@ -270,27 +270,33 @@ function paintTileFace(
   ctx.fillText(badgeText, 22 + badgeW / 2, 42);
   ctx.restore();
 
-  // Top-right suit geometric marker
+  // Top-right suit marker, scaled from its measured glyph bounds into a fixed box: the symbol
+  // glyphs (●, ■, ✦, ☀…) render at very different sizes within the same font size.
   ctx.save();
   ctx.fillStyle = suit.accent;
-  ctx.globalAlpha = 0.72;
-  ctx.font = '700 24px system-ui, sans-serif';
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(suit.symbol, w - 26, 40);
+  ctx.font = '700 100px system-ui, sans-serif';
+  const glyph = ctx.measureText(suit.symbol);
+  const glyphW = glyph.actualBoundingBoxLeft + glyph.actualBoundingBoxRight;
+  const glyphH = glyph.actualBoundingBoxAscent + glyph.actualBoundingBoxDescent;
+  const scale = 34 / Math.max(glyphW, glyphH);
+  ctx.translate(w - 22 - 17, 41);
+  ctx.scale(scale, scale);
+  ctx.fillText(
+    suit.symbol,
+    glyph.actualBoundingBoxLeft - glyphW / 2,
+    glyph.actualBoundingBoxAscent - glyphH / 2,
+  );
   ctx.restore();
 
-  // Bottom crisp micro-caption for rapid scannability on small mobile screens
+  // Bottom caption, as large as fits inside the frame for scannability on small mobile screens
   ctx.save();
   ctx.fillStyle = suit.accent;
-  ctx.globalAlpha = 0.88;
-  const footerLabel = design.isBonus
-    ? `${design.suit === 'season' ? 'SEASON' : 'BLOOM'} · ${design.name.toUpperCase()}`
-    : design.name.toUpperCase();
-  const fontSize = footerLabel.length > 17 ? 15 : footerLabel.length > 14 ? 17 : 20;
+  const footerLabel = design.name.toUpperCase();
+  ctx.font = '700 100px "Paper Mono", ui-monospace, monospace';
+  const fontSize = Math.min(30, Math.floor((100 * (w - pad * 2 - 16)) / ctx.measureText(footerLabel).width));
   ctx.font = `700 ${fontSize}px "Paper Mono", ui-monospace, monospace`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
-  ctx.fillText(footerLabel, w / 2, h - 25);
+  ctx.fillText(footerLabel, w / 2, h - 24);
   ctx.restore();
 }

@@ -119,16 +119,16 @@ const CORE_DESIGNS: Omit<TileDesign, 'matchKey' | 'isBonus'>[] = [
 
 const BONUS_DESIGNS: Omit<TileDesign, 'isBonus'>[] = [
   // Seasons bonus group (4 unique x 1 = 4, any two match)
-  { id: 'season-spring', name: 'Spring', suit: 'season', badge: 'S1', matchKey: 'bonus-season' },
-  { id: 'season-summer', name: 'Summer', suit: 'season', badge: 'S2', matchKey: 'bonus-season' },
-  { id: 'season-autumn', name: 'Autumn', suit: 'season', badge: 'S3', matchKey: 'bonus-season' },
-  { id: 'season-winter', name: 'Winter', suit: 'season', badge: 'S4', matchKey: 'bonus-season' },
+  { id: 'season-spring', name: 'Spring', suit: 'season', badge: 'Season 1', matchKey: 'bonus-season' },
+  { id: 'season-summer', name: 'Summer', suit: 'season', badge: 'Season 2', matchKey: 'bonus-season' },
+  { id: 'season-autumn', name: 'Autumn', suit: 'season', badge: 'Season 3', matchKey: 'bonus-season' },
+  { id: 'season-winter', name: 'Winter', suit: 'season', badge: 'Season 4', matchKey: 'bonus-season' },
 
   // Blooms bonus group (4 unique x 1 = 4, any two match)
-  { id: 'bloom-hibiscus', name: 'Hibiscus', suit: 'bloom', badge: 'F1', matchKey: 'bonus-bloom' },
-  { id: 'bloom-sunflower', name: 'Sunflr', suit: 'bloom', badge: 'F2', matchKey: 'bonus-bloom' },
-  { id: 'bloom-allium', name: 'Allium', suit: 'bloom', badge: 'F3', matchKey: 'bonus-bloom' },
-  { id: 'bloom-forget-me-not', name: 'Forget-Me-Not', suit: 'bloom', badge: 'F4', matchKey: 'bonus-bloom' },
+  { id: 'bloom-hibiscus', name: 'Hibiscus', suit: 'bloom', badge: 'Bloom 1', matchKey: 'bonus-bloom' },
+  { id: 'bloom-sunflower', name: 'Sunflower', suit: 'bloom', badge: 'Bloom 2', matchKey: 'bonus-bloom' },
+  { id: 'bloom-allium', name: 'Allium', suit: 'bloom', badge: 'Bloom 3', matchKey: 'bonus-bloom' },
+  { id: 'bloom-forget-me-not', name: 'Forget-Me-Not', suit: 'bloom', badge: 'Bloom 4', matchKey: 'bonus-bloom' },
 ];
 
 export const TILE_DESIGNS: TileDesign[] = [

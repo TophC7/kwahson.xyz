@@ -12,10 +12,11 @@
 
   const difficulties = Object.keys(DIFFICULTIES) as Difficulty[];
   const card = 'rounded-md border border-[rgba(213,215,207,0.12)] bg-surface/88 backdrop-blur-md';
-  const btn = 'pt-btn inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-sm border border-[rgba(213,215,207,0.12)] bg-surface-raised px-2 font-mono text-[11px] text-ink transition-colors hover:border-sage/45 disabled:cursor-default disabled:opacity-45';
+  const buttonBase = 'pt-btn inline-flex cursor-pointer items-center justify-center rounded-sm border border-[rgba(213,215,207,0.12)] bg-surface-raised font-mono text-ink transition-colors hover:border-sage/45 disabled:cursor-default disabled:opacity-45';
+  const btn = `${buttonBase} min-h-11 min-w-11 gap-1.5 px-2 text-[11px]`;
+  const chip = `${buttonBase} min-h-10 min-w-0 gap-0.5 px-0.5`;
   const primary = `${btn} border-sage/55 bg-sage/25 hover:bg-sage/35`;
-  const action = 'pt-btn flex min-h-11 min-w-0 cursor-pointer flex-col items-stretch justify-start gap-1 rounded-sm border border-[rgba(213,215,207,0.12)] bg-surface-raised p-1.5 text-left font-mono text-[11px] text-ink transition-colors hover:border-sage/45 disabled:cursor-default disabled:opacity-65 disabled:hover:border-[rgba(213,215,207,0.12)]';
-  const slot = `${action} h-[52px] overflow-hidden`;
+  const slot = 'flex h-[52px] w-full min-w-0 flex-col justify-center rounded-sm border border-ink/10 bg-surface-raised px-1.5 text-left font-mono text-[11px] leading-tight';
   const pill = 'inline-flex max-w-full items-center gap-1.5 rounded-full border border-[rgba(213,215,207,0.1)] bg-surface/82 px-3 py-1 font-mono text-[10.5px] text-ink-muted backdrop-blur-md';
   const sheet = 'm-auto max-h-[90dvh] w-[min(92vw,26rem)] overflow-y-auto rounded-md border border-[rgba(213,215,207,0.14)] bg-surface p-5 text-ink shadow-[0_24px_70px_rgba(0,0,0,0.72)] backdrop:bg-canvas/65 backdrop:backdrop-blur-xs';
 
@@ -46,15 +47,7 @@
   const docked = window.matchMedia('(min-width: 64rem)');
   const selectedHero = $derived(hud.heroes.find((hero) => hero.id === hud.selected?.id));
   const spending = $derived(hud.pendingItem ? ITEMS[hud.pendingItem].power : 0);
-  const guideLine = $derived.by(() => {
-    if (hud.phase === 'enemy') return 'Visitors are acting…';
-    if (hud.preview !== null) return 'Tap the target again or Confirm';
-    if (hud.mode === 'skill' || hud.mode === 'item') return 'Tap a yellow target';
-    if (!hud.selected) return 'Tap a herd animal to give orders';
-    if (!hud.selected.isHero) return `Inspecting ${hud.selected.name}`;
-    if (hud.mode === 'move') return `${hud.selected.name} · tap a blue tile to move`;
-    return `${hud.selected.name} · choose an action`;
-  });
+  const guideLine = $derived(hud.phase === 'enemy' ? 'Visitors are acting…' : 'Tap a herd animal to give orders');
 
   function setGalleryOpen(open: boolean) {
     showGallery = open;
@@ -210,18 +203,19 @@
       {@render difficultySelector()}
       <div class="pointer-events-auto flex gap-1">{@render fightButtons()}</div>
     </div>
-    <div class="flex items-center justify-center gap-1.5">
-      {#if hud.status}<div class={pill} role="status"><span class="h-1.5 w-1.5 shrink-0 rounded-full bg-sage"></span>{hud.status}</div>{/if}
+    <div class="absolute inset-x-2 top-full flex items-center justify-center gap-1.5 lg:static">
+      {#if hud.status}<div class={pill} role="status"><span class="h-1.5 w-1.5 shrink-0 rounded-full bg-sage"></span>{hud.preview?.join(' · ') ?? hud.status}</div>{/if}
       {#if hud.fastForward}<span class={pill}>▶▶ 3×</span>{/if}
     </div>
   </div>
 
   <footer bind:this={panelEl} class="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-2 sm:px-4 lg:relative lg:w-[27rem] lg:max-h-full lg:self-start lg:justify-self-end lg:overflow-y-auto" style="padding-bottom:max(10px, env(safe-area-inset-bottom))">
     <div class="{card} pointer-events-auto mx-auto w-full max-w-xl">
-    <fieldset disabled={locked} aria-label="Herd orders" class="grid min-w-0 gap-1.5 p-1.5">
-      <div class="flex gap-1">
+    <fieldset disabled={locked} aria-label="Herd orders" class="grid min-w-0 gap-1 p-1 lg:gap-1.5 lg:p-1.5">
+      <!-- Six controls in every squad: shared items follow the heroes in reading order. -->
+      <div class="grid grid-cols-3 gap-1">
         {#each hud.heroes as hero (hero.id)}
-          <button class="{btn} min-w-0 flex-1 gap-1 px-1 {hero.alive && !hero.canMove && !hero.canAct ? 'opacity-45' : ''}" aria-pressed={hud.selected?.id === hero.id} disabled={!hero.alive} onclick={() => controller?.select(hero.id)}>
+          <button class="{chip} text-[11px] {hero.alive && !hero.canMove && !hero.canAct ? 'opacity-45' : ''}" aria-pressed={hud.selected?.id === hero.id} disabled={!hero.alive} onclick={() => controller?.select(hero.id)}>
             {@render portrait(HEROES[hero.kind].model, 28)}
             <span class="flex min-w-0 flex-col gap-0.5 text-left"><span class:line-through={!hero.alive}>{HEROES[hero.kind].name}</span><span class="flex items-center gap-0.5">
               {@render pips(hero.hp, HEROES[hero.kind].hp, 'HP')}
@@ -229,42 +223,41 @@
             </span></span>
           </button>
         {/each}
+        {#each hud.items as item (item.kind)}
+          {@const info = ITEMS[item.kind]}
+          <button class="{chip} text-[10px]" title={info.name} disabled={!item.usable} aria-pressed={hud.pendingItem === item.kind} onclick={() => controller?.chooseItem(item.kind)}>
+            {@render portrait(info.model, 16)}<strong class="truncate">{info.name}</strong>
+            <span class="flex shrink-0 flex-col items-center gap-0.5 text-ink-muted">×{item.charges}{@render pips(info.power, info.power, 'power cost', 'bg-ochre')}</span>
+          </button>
+        {/each}
       </div>
       <!-- Fixed-height rows keep the panel from resizing, which would refit the board under the player's finger. -->
-      <div class="flex h-8 items-center justify-between gap-2 px-1 font-mono text-[11px]" aria-live="polite">
-        {#if hud.preview !== null}<span class="line-clamp-2 min-w-0 text-ochre">{hud.preview.join(' · ')}</span>
-        {:else}<span class="line-clamp-2 min-w-0 text-ink-muted">{guideLine}</span>{/if}
-        <span class="flex shrink-0 items-center gap-1.5 text-ochre" role="img" aria-label={`${hud.power} of ${POWER_PER_TURN} power left`}>
+      <div class="relative" aria-live="polite">
+        <span class="pointer-events-none absolute top-1 right-2 flex items-center gap-1.5 font-mono text-ochre" role="img" aria-label={`${hud.power} of ${POWER_PER_TURN} power left`}>
           <span class="text-[9px] tracking-wider uppercase">Power</span>
           <span class="inline-flex gap-1">
             {#each {length: POWER_PER_TURN} as _, i}<span class="h-2.5 w-2.5 rounded-[3px] {i < hud.power - spending ? 'bg-ochre' : i < hud.power ? 'animate-pulse bg-ochre/45' : 'bg-ink/20'}"></span>{/each}
           </span>
         </span>
-      </div>
-      {#if hud.selected?.isHero}
-        <button class={slot} aria-pressed={hud.mode === 'skill'} disabled={!hud.selected.canSkill} onclick={() => controller?.chooseSkill()}>
-          <span class="flex items-center gap-1.5"><strong>{hud.selected.abilityName}</strong><span class="ml-auto text-[10px] text-sage-soft">Free</span></span>
-          <span class="text-ink-muted">{hud.selected.abilityDesc}</span>
+      {#if hud.pendingItem}
+        {@const info = ITEMS[hud.pendingItem]}
+        <div class={slot}><strong>{info.name}</strong><span class="line-clamp-2 text-ink-muted">{info.desc}</span></div>
+      {:else if hud.selected?.isHero}
+        <button class="{slot} pt-btn cursor-pointer disabled:cursor-default disabled:opacity-65" aria-pressed={hud.mode === 'skill'} disabled={!hud.selected.canSkill} onclick={() => controller?.chooseSkill()}>
+          <span class="flex items-center gap-1.5"><strong>{hud.selected.abilityName}</strong><span class="text-[10px] text-sage-soft">Free</span></span>
+          <span class="line-clamp-2 text-ink-muted">{hud.selected.abilityDesc}</span>
         </button>
       {:else if hud.selected}
         <div class="{slot} cursor-default">
           <span class="flex items-center gap-1.5"><strong>{hud.selected.name}</strong>
             {#if hud.selected.hp !== null && hud.selected.maxHp !== null}{@render pips(hud.selected.hp, hud.selected.maxHp, 'HP', hud.selected.team === 'sky' ? 'bg-[#d9614f]' : 'bg-sage-soft')}{/if}
-            {#if hud.selected.move !== null}<span class="ml-auto text-ink-muted">Move {hud.selected.move}</span>{/if}
+            {#if hud.selected.move !== null}<span class="text-ink-muted">Move {hud.selected.move}</span>{/if}
           </span>
-          <span class="text-ink-muted"><strong class="text-ink">{hud.selected.abilityName}:</strong> {hud.selected.abilityDesc}</span>
+          <span class="line-clamp-2 text-ink-muted"><strong class="text-ink">{hud.selected.abilityName}:</strong> {hud.selected.abilityDesc}</span>
         </div>
       {:else}
-        <div class="{slot} cursor-default justify-center text-ink-muted">Tap a herd animal on the board or above. Its free signature move shows here.</div>
+        <div class="{slot} pr-20 text-ink-muted">{guideLine}</div>
       {/if}
-      <div class="grid gap-1.5" style:grid-template-columns={`repeat(${hud.items.length === 4 ? 2 : Math.max(1, hud.items.length)}, minmax(0, 1fr))`}>
-        {#each hud.items as item (item.kind)}
-          <button class={action} disabled={!item.usable} aria-pressed={hud.pendingItem === item.kind} onclick={() => controller?.chooseItem(item.kind)}>
-            <span class="flex items-center gap-1">{@render portrait(ITEMS[item.kind].model, 20)}<strong class="truncate">{ITEMS[item.kind].name}</strong><span class="ml-auto shrink-0 text-ink-muted">×{item.charges}</span></span>
-            {@render pips(ITEMS[item.kind].power, ITEMS[item.kind].power, 'power cost', 'bg-ochre')}
-            <span class="leading-snug text-ink-muted">{ITEMS[item.kind].desc}</span>
-          </button>
-        {/each}
       </div>
       {#if hud.preview !== null}
         <div class="grid grid-cols-2 gap-1.5">

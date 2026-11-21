@@ -48,15 +48,15 @@ const TILE = 1.4, GROUND = 0.09;
 const INFO = { ...HEROES, ...ENEMIES, ...PROPS };
 const tileCenter = (x: number, y: number) => new THREE.Vector3((x - (COLS - 1) / 2) * TILE, GROUND, (y - (ROWS - 1) / 2) * TILE);
 const DANGER_KEY = 'pasture-tactics-danger';
-// Three-quarter view: camera swung `yaw` around the board and CAM_PITCH above the ground. Portrait screens
-// face the board square-on, because the swing widens the 8-column grid past a phone's width.
-const CAM_PITCH = 0.76, CAM_DIST = 24;
+// The desktop three-quarter view shows model silhouettes; portrait faces the grid square-on
+// from higher up so the eight columns fit and the nine rows remain easy to tap.
+const CAM_DIST = 24;
 function cameraFor(width: number, height: number) {
-  const camYaw = width < height ? 0 : 0.35;
+  const portrait = width < height, camYaw = portrait ? 0 : 0.35, pitch = portrait ? 1 : 0.76;
   const offset = new THREE.Vector3(
-    Math.sin(camYaw) * Math.cos(CAM_PITCH) * CAM_DIST,
-    Math.sin(CAM_PITCH) * CAM_DIST,
-    Math.cos(camYaw) * Math.cos(CAM_PITCH) * CAM_DIST,
+    Math.sin(camYaw) * Math.cos(pitch) * CAM_DIST,
+    Math.sin(pitch) * CAM_DIST,
+    Math.cos(camYaw) * Math.cos(pitch) * CAM_DIST,
   );
   // Resting pieces face the camera, angled slightly toward their last move.
   return { offset, yaw: (dir: number) => camYaw + (dir === 1 ? 0.5 : dir === 3 ? -0.5 : 0) };
@@ -94,7 +94,7 @@ export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }:
     cleanups.length = 0;
   }
   try {
-    // ponytail: yaw is fixed at mount; rotating the device keeps it until reload.
+    // ponytail: the viewing angle is fixed at mount; rotating the device keeps it until reload.
     const { offset: camOffset, yaw } = cameraFor(viewport.clientWidth, viewport.clientHeight);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setClearColor(0, 0);
@@ -529,6 +529,7 @@ export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }:
       return tx >= 0 && tx < COLS && ty >= 0 && ty < ROWS ? { x: tx, y: ty } : null;
     }
     let pressedBusy = false;
+    // Portrait deliberately crops the decorative border to keep the playable tiles tappable.
     const cam = createBoardCamera({ viewport, renderer, insets, signal, offset: camOffset, pad: { x: 0.25, z: 0.35 }, maxZoom: 2.2,
       onTap: (x, y) => { if (!pressedBusy || busy) tap(pick(x, y)); },
       onHover(x, y, event) {

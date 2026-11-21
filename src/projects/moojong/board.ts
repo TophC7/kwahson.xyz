@@ -43,6 +43,7 @@ export interface BoardTile extends Slot {
 export interface GeneratedBoard {
   difficulty: Difficulty;
   seed: number;
+  portrait: boolean;
   layoutName: string;
   tiles: BoardTile[];
 }
@@ -342,8 +343,24 @@ const ARCHETYPES: Record<Difficulty, ArchetypeParams[]> = {
   ],
 };
 
-function generateSymmetricLayout(difficulty: Difficulty, rng: () => number): LayoutSpec {
-  const spec = pick(ARCHETYPES[difficulty], rng);
+// Turn the same silhouettes lengthwise, stretching the center by two rows.
+// The generator still checks support and solves left/right locks in the final orientation.
+function portraitArchetype(spec: ArchetypeParams): ArchetypeParams {
+  return {
+    ...spec,
+    halfCols: spec.halfRows,
+    halfRows: spec.halfCols + 2,
+    parity: (gz) => {
+      const [px, py] = spec.parity(gz);
+      return [py, px];
+    },
+    mask: (ax, ay, gz) => spec.mask(Math.max(ay % 2, ay - 2), ax, gz),
+  };
+}
+
+function generateSymmetricLayout(difficulty: Difficulty, rng: () => number, portrait: boolean): LayoutSpec {
+  const archetype = pick(ARCHETYPES[difficulty], rng);
+  const spec = portrait ? portraitArchetype(archetype) : archetype;
   const occupied: Slot[] = [];
   const groupsAdded: Slot[][] = [];
 
@@ -354,8 +371,8 @@ function generateSymmetricLayout(difficulty: Difficulty, rng: () => number): Lay
   function collectCandidates(gz: number, relaxMask: boolean): Slot[][] {
     const [px, py] = spec.parity(gz);
     const groups: Slot[][] = [];
-    const maxX = relaxMask ? spec.halfCols + 2 : spec.halfCols;
-    const maxY = relaxMask ? spec.halfRows + 2 : spec.halfRows;
+    const maxX = relaxMask && !portrait ? spec.halfCols + 2 : spec.halfCols;
+    const maxY = relaxMask && !portrait ? spec.halfRows + 2 : spec.halfRows;
 
     for (let ax = px; ax <= maxX; ax += 2) {
       for (let ay = py; ay <= maxY; ay += 2) {
@@ -607,12 +624,12 @@ function dealTiles(slots: readonly Slot[], peeled: readonly [number, number][], 
  * Generates a fresh, difficulty-scaled 144-tile procedural Mahjong Solitaire
  * board that is strictly verified 100% solvable from the opening state.
  */
-export function generateBoard(difficulty: Difficulty, seed = randomSeed()): GeneratedBoard {
+export function generateBoard(difficulty: Difficulty, seed = randomSeed(), portrait = false): GeneratedBoard {
   const config = DIFFICULTIES[difficulty];
   const rng = mulberry32(seed);
 
   for (let attempt = 0; attempt < 36; attempt++) {
-    const layout = generateSymmetricLayout(difficulty, rng);
+    const layout = generateSymmetricLayout(difficulty, rng, portrait);
     if (layout.slots.length !== TOTAL_TILES) continue;
 
     const peeled = peelSlotPairs(layout.slots, rng, 14);
@@ -628,6 +645,7 @@ export function generateBoard(difficulty: Difficulty, seed = randomSeed()): Gene
     return {
       difficulty,
       seed,
+      portrait,
       layoutName: layout.name,
       tiles,
     };
@@ -650,6 +668,7 @@ export function generateBoard(difficulty: Difficulty, seed = randomSeed()): Gene
   return {
     difficulty,
     seed,
+    portrait,
     layoutName: 'Open Meadow',
     tiles,
   };
@@ -663,6 +682,7 @@ export function generateBoard(difficulty: Difficulty, seed = randomSeed()): Gene
  */
 export function reshuffleRemaining(
   tiles: readonly BoardTile[],
+  portrait: boolean,
   rng: () => number = Math.random,
 ): { tiles: BoardTile[]; flattened: boolean } {
   const next = tiles.map((t) => ({ ...t }));
@@ -695,7 +715,7 @@ export function reshuffleRemaining(
     // Rare unpeelable remaining stack geometry (e.g. 2 tiles stacked directly on top of each other).
     // Settle remaining tiles cleanly onto ground layer z = 0 in a compact centered grid.
     flattened = true;
-    const cols = Math.ceil(Math.sqrt(active.length));
+    const cols = Math.ceil(Math.sqrt(active.length * (portrait ? 2 / 3 : 1)));
     const rows = Math.ceil(active.length / cols);
     active.forEach((tile, idx) => {
       const col = idx % cols;

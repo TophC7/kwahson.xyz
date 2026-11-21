@@ -33,6 +33,8 @@
   const BLOOM_IDS = TILE_DESIGNS.filter((d) => d.suit === 'bloom').map((d) => d.id);
 
   let viewportEl = $state<HTMLDivElement | undefined>(undefined);
+  let topEl: HTMLDivElement;
+  let footerEl: HTMLElement;
   let controller: MoojongController | null = null;
   let errorMessage = $state('');
   let showGuide = $state(false);
@@ -85,13 +87,21 @@
     try {
       const instance = mountMoojong({
         viewport: viewportEl,
+        insets: (w, h) => {
+          const side = w < h ? 6 : 24;
+          return { top: topEl.offsetHeight + 4, bottom: footerEl.offsetHeight + 8, left: side, right: side };
+        },
         onState: (patch) => {
           Object.assign(hud, patch);
         },
       });
       controller = instance;
       previews = instance.previews;
+      const observer = new ResizeObserver(() => instance.refit());
+      observer.observe(topEl);
+      observer.observe(footerEl);
       return () => {
+        observer.disconnect();
         instance.destroy();
         controller = null;
       };
@@ -123,7 +133,7 @@
   ></div>
 
   <!-- Top floating HUD -->
-  <div class="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col gap-2 p-2.5 sm:p-4">
+  <div bind:this={topEl} class="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col gap-2 p-2.5 sm:p-4">
     <div class="flex items-start justify-between gap-2">
       <!-- Telemetry card -->
       <section
@@ -224,8 +234,9 @@
       </div>
     </div>
 
-    <!-- Mobile difficulty bar + status pill -->
-    <div class="flex flex-wrap items-center justify-between gap-2">
+    <!-- Mobile difficulty bar + status pill. Fixed height and no wrapping: the board fits below this HUD,
+         so a toast that changed its height would bounce the board on every show/dismiss. -->
+    <div class="flex min-h-7 items-center justify-between gap-2">
       <div
         role="group"
         aria-label="Difficulty"
@@ -249,7 +260,7 @@
       {#if hud.status || hud.selectedName}
         <div
           role="status"
-          class="mx-auto inline-flex max-w-full items-center gap-1.5 rounded-full border border-[rgba(213,215,207,0.1)] bg-surface/82 px-3 py-1 font-mono text-[10.5px] text-ink-muted backdrop-blur-md"
+          class="mx-auto inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-[rgba(213,215,207,0.1)] bg-surface/82 px-3 py-1 font-mono text-[10.5px] text-ink-muted backdrop-blur-md"
         >
           <span
             class="h-1.5 w-1.5 shrink-0 rounded-full {hud.selectedName ? 'bg-ochre' : 'bg-sage'}"
@@ -265,6 +276,7 @@
 
   <!-- Bottom thumb-friendly action bar -->
   <footer
+    bind:this={footerEl}
     class="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex items-end justify-center gap-2 px-2.5 pb-2.5 sm:px-4 sm:pb-4 lg:justify-between"
     style="padding-bottom: max(10px, env(safe-area-inset-bottom));"
   >
