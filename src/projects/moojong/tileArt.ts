@@ -64,7 +64,6 @@ export function buildTileArtAtlas(renderer: THREE.WebGLRenderer, kit: PastureKit
 
   const materials = new Map<string, THREE.MeshStandardMaterial>();
   const previews: Record<string, string> = {};
-  const textures: THREE.CanvasTexture[] = [];
   const maxAniso = Math.min(4, renderer.capabilities.getMaxAnisotropy());
 
   for (const design of TILE_DESIGNS) {
@@ -113,8 +112,6 @@ export function buildTileArtAtlas(renderer: THREE.WebGLRenderer, kit: PastureKit
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = maxAniso;
-    texture.needsUpdate = true;
-    textures.push(texture);
 
     const faceMaterial = new THREE.MeshStandardMaterial({
       map: texture,
@@ -138,10 +135,10 @@ export function buildTileArtAtlas(renderer: THREE.WebGLRenderer, kit: PastureKit
     materials,
     previews,
     dispose() {
-      for (const tex of textures) tex.dispose();
-      for (const mat of materials.values()) mat.dispose();
-      textures.length = 0;
-      materials.clear();
+      for (const mat of materials.values()) {
+        mat.map?.dispose();
+        mat.dispose();
+      }
     },
   };
 }

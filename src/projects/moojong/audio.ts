@@ -8,7 +8,6 @@ export interface MoojongAudio {
   isMuted(): boolean;
   setMuted(next: boolean): boolean;
   unlock(): void;
-  setHidden(next: boolean): void;
   playSelect(): void;
   playDeselect(): void;
   playBlocked(): void;
@@ -32,7 +31,6 @@ export function createMoojongAudio(): MoojongAudio {
     isMuted: sfx.isMuted,
     setMuted: sfx.setMuted,
     unlock: sfx.unlock,
-    setHidden: sfx.setHidden,
     playSelect() {
       if (!ready()) return;
       clack(0, 1.05, 0.11);

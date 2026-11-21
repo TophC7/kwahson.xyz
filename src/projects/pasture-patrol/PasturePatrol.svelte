@@ -1,4 +1,5 @@
 <script lang="ts">
+  import GameStage from '../../components/GameStage.svelte';
   import { PauseIcon, PlayIcon, RefreshIcon, VolumeHighIcon, VolumeOffIcon } from '@hugeicons/core-free-icons';
   import Icon from '../../components/Icon.svelte';
   import { mountPasturePatrol, type PastureController, type PastureHudState } from './game';
@@ -20,7 +21,7 @@
   ] as const;
 
   let viewportEl = $state<HTMLDivElement | undefined>(undefined);
-  let controlZoneEl = $state<HTMLDivElement | undefined>(undefined);
+  let controlZoneEl: HTMLDivElement;
   let restartBtnEl = $state<HTMLButtonElement | undefined>(undefined);
   let guideEl: HTMLDialogElement;
   let resumeAfterGuide = false;
@@ -37,13 +38,8 @@
     resumeAfterGuide = false;
   }
 
-  function handleGuideKey(event: KeyboardEvent) {
-    // Let the native dialog handle Escape without also toggling the game's pause.
-    if (guideEl.open && event.key === 'Escape') event.stopImmediatePropagation();
-  }
-
   let controller: PastureController | null = null;
-  let errorMessage = $state('');
+  let failed = $state(false);
 
   let hud = $state<PastureHudState>({
     score: 0,
@@ -58,27 +54,22 @@
     muted: false,
     legends: {},
   });
+  const lowHull = $derived(hud.health <= 40);
 
   // Floating circular axis pad state
-  let activePointerId = $state<number | null>(null);
-  let padActive = $state(false);
-  let padX = $state<number | null>(null);
-  let padY = $state<number | null>(null);
+  let pad = $state<{ id: number; x: number; y: number } | null>(null);
   let knobX = $state(0);
   let knobY = $state(0);
 
   function resetPad() {
-    activePointerId = null;
-    padActive = false;
-    padX = null;
-    padY = null;
+    pad = null;
     knobX = 0;
     knobY = 0;
     controller?.setStickInput(0, 0, false);
   }
 
   function handleZoneDown(event: PointerEvent) {
-    if (hud.paused || hud.ended || activePointerId !== null || !controlZoneEl) return;
+    if (hud.paused || hud.ended || pad || !controlZoneEl) return;
 
     const rect = controlZoneEl.getBoundingClientRect();
     const rawX = event.clientX - rect.left;
@@ -89,38 +80,28 @@
     const clampedX = Math.min(Math.max(margin, rawX), Math.max(margin, rect.width - margin));
     const clampedY = Math.min(Math.max(margin, rawY), Math.max(margin, rect.height - margin));
 
-    activePointerId = event.pointerId;
-    padActive = true;
-    padX = clampedX;
-    padY = clampedY;
     knobX = 0;
     knobY = 0;
     controlZoneEl.setPointerCapture(event.pointerId);
     controller?.setStickInput(0, 0, true);
+    pad = { id: event.pointerId, x: clampedX, y: clampedY };
   }
 
   function handleZoneMove(event: PointerEvent) {
-    if (!padActive || event.pointerId !== activePointerId || !controlZoneEl || padX === null || padY === null) {
-      return;
-    }
+    if (event.pointerId !== pad?.id || !controlZoneEl) return;
     const rect = controlZoneEl.getBoundingClientRect();
-    const dx = event.clientX - rect.left - padX;
-    const dy = event.clientY - rect.top - padY;
+    const dx = event.clientX - rect.left - pad.x;
+    const dy = event.clientY - rect.top - pad.y;
     const dist = Math.hypot(dx, dy);
 
-    if (dist > MAX_TRAVEL) {
-      const scale = MAX_TRAVEL / dist;
-      knobX = dx * scale;
-      knobY = dy * scale;
-    } else {
-      knobX = dx;
-      knobY = dy;
-    }
+    const k = Math.min(1, MAX_TRAVEL / dist);
+    knobX = dx * k;
+    knobY = dy * k;
     controller?.setStickInput(knobX / MAX_TRAVEL, knobY / MAX_TRAVEL, true);
   }
 
   function handleZoneUp(event: PointerEvent) {
-    if (event.pointerId !== activePointerId) return;
+    if (event.pointerId !== pad?.id) return;
     resetPad();
   }
 
@@ -138,7 +119,7 @@
 
   $effect(() => {
     if (!viewportEl) return;
-    errorMessage = '';
+    failed = false;
 
     try {
       const instance = mountPasturePatrol({
@@ -154,28 +135,13 @@
       };
     } catch (err) {
       console.error(err);
-      errorMessage =
-        'Your browser could not start the 3D pasture. Please enable WebGL or try a newer browser.';
+      failed = true;
     }
   });
 </script>
 
-<svelte:window onkeydowncapture={handleGuideKey} />
-
 <div class="relative h-full w-full overflow-hidden bg-canvas text-ink select-none" aria-label="Pasture Patrol game">
-  <!-- Subtle twilight vignette + dot grid behind the transparent 3D diorama -->
-  <div
-    class="bg-field-grid pointer-events-none absolute inset-0 opacity-30 [mask-image:radial-gradient(ellipse_80%_75%_at_50%_50%,#000_25%,transparent_100%)]"
-    aria-hidden="true"
-  ></div>
-  <div
-    class="pointer-events-none absolute inset-0"
-    style="background: radial-gradient(circle at 50% 48%, rgba(122, 141, 118, 0.11), rgba(17, 18, 16, 0) 62%);"
-    aria-hidden="true"
-  ></div>
-
-  <!-- Full-bleed 3D WebGL stage -->
-  <div class="pasture-viewport absolute inset-0 z-0 touch-none" bind:this={viewportEl} aria-label="Game arena"></div>
+  <GameStage bind:viewport={viewportEl} label="Game arena" what="the 3D pasture" {failed} />
 
   <!-- Top floating HUD -->
   <div class="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col gap-2 p-3 sm:p-4">
@@ -183,7 +149,7 @@
       <!-- Unified Score + Hull Telemetry -->
       <section
         aria-label="Game status"
-        class="flex items-center gap-2 rounded-md border border-[rgba(213,215,207,0.12)] bg-surface/85 px-2 py-2 backdrop-blur-md sm:gap-4 sm:px-3.5"
+        class="flex items-center gap-2 rounded-md border border-ink/12 bg-surface/85 px-2 py-2 backdrop-blur-md sm:gap-4 sm:px-3.5"
       >
         <div class="flex flex-col">
           <span class="font-mono text-[9px] tracking-[0.12em] text-ink-dim uppercase">Score</span>
@@ -196,12 +162,12 @@
           </div>
         </div>
 
-        <div class="h-7 w-px bg-[rgba(213,215,207,0.1)]" aria-hidden="true"></div>
+        <div class="h-7 w-px bg-ink/10" aria-hidden="true"></div>
 
         <div class="flex min-w-[64px] flex-col sm:min-w-[152px]">
           <div class="flex items-baseline justify-between gap-2 font-mono text-[9px] tracking-[0.1em] uppercase">
             <span class="text-ink-dim">Hull</span>
-            <span class="text-[11px] font-semibold {hud.health <= 40 ? 'text-[#c97a66]' : 'text-ink'}">
+            <span class="text-[11px] font-semibold {lowHull ? 'text-[#c97a66]' : 'text-ink'}">
               {hud.health}
             </span>
           </div>
@@ -214,9 +180,7 @@
             aria-valuenow={hud.health}
           >
             <div
-              class="h-full rounded-full transition-[width,background-color] duration-200 {hud.health <= 40
-                ? 'bg-[#b86b58]'
-                : 'bg-sage'}"
+              class="h-full rounded-full transition-[width,background-color] duration-200 {lowHull ? 'bg-[#b86b58]' : 'bg-sage'}"
               style="width: {hud.health}%;"
             ></div>
           </div>
@@ -231,7 +195,7 @@
       {#if hud.status}
         <div
           role="status"
-          class="hidden items-center gap-2 self-center rounded-full border border-[rgba(213,215,207,0.1)] bg-surface/80 px-3 py-1.5 font-mono text-[11px] text-ink-muted backdrop-blur-md md:flex"
+          class="hidden items-center gap-2 self-center rounded-full border border-ink/10 bg-surface/80 px-3 py-1.5 font-mono text-[11px] text-ink-muted backdrop-blur-md md:flex"
         >
           <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-sage" aria-hidden="true"></span>
           <span class="whitespace-nowrap">{hud.status}</span>
@@ -240,10 +204,10 @@
 
       <!-- Compact Audio + Pause controls -->
       <div class="pointer-events-auto flex shrink-0 items-center gap-1.5">
-        <button type="button" class="pp-btn h-9 rounded-sm border border-sage/35 bg-surface/85 px-2 font-mono text-[11px] text-ink" aria-haspopup="dialog" aria-label="Open field guide" onclick={openGuide}>Guide</button>
+        <button type="button" class="focus-ring h-9 rounded-sm border border-sage/35 bg-surface/85 px-2 font-mono text-[11px] text-ink" aria-haspopup="dialog" aria-label="Open field guide" onclick={openGuide}>Guide</button>
         <button
           type="button"
-          class="pp-btn inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-sm border border-[rgba(213,215,207,0.12)] bg-surface/85 px-2.5 font-mono text-[11px] backdrop-blur-md transition-colors hover:border-[rgba(213,215,207,0.26)] hover:bg-surface-raised {hud.muted
+          class="focus-ring inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-sm border border-ink/12 bg-surface/85 px-2.5 font-mono text-[11px] backdrop-blur-md transition-colors hover:border-ink/26 hover:bg-surface-raised {hud.muted
             ? 'text-ink-dim'
             : 'text-ink'}"
           aria-pressed={hud.muted}
@@ -258,7 +222,7 @@
 
         <button
           type="button"
-          class="pp-btn inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-sm border border-[rgba(213,215,207,0.12)] bg-surface/85 px-2.5 font-mono text-[11px] text-ink backdrop-blur-md transition-colors hover:border-[rgba(213,215,207,0.26)] hover:bg-surface-raised disabled:cursor-default disabled:opacity-45"
+          class="focus-ring inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-sm border border-ink/12 bg-surface/85 px-2.5 font-mono text-[11px] text-ink backdrop-blur-md transition-colors hover:border-ink/26 hover:bg-surface-raised disabled:cursor-default disabled:opacity-45"
           disabled={hud.ended}
           aria-controls="pasture-pause-panel"
           aria-label={hud.paused ? 'Resume flight' : 'Pause flight'}
@@ -277,7 +241,7 @@
       <div class="flex items-center justify-between gap-2 md:hidden">
         <div
           role="status"
-          class="inline-flex max-w-full items-center gap-1.5 truncate rounded-full border border-[rgba(213,215,207,0.1)] bg-surface/80 px-2.5 py-1 font-mono text-[10px] text-ink-muted backdrop-blur-md"
+          class="inline-flex max-w-full items-center gap-1.5 truncate rounded-full border border-ink/10 bg-surface/80 px-2.5 py-1 font-mono text-[10px] text-ink-muted backdrop-blur-md"
         >
           <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-sage" aria-hidden="true"></span>
           <span class="truncate">{hud.status}</span>
@@ -300,10 +264,8 @@
   >
     <div
       class="pp-pad"
-      class:is-active={padActive}
-      style={padX !== null && padY !== null
-        ? `left: ${padX}px; top: ${padY}px;`
-        : 'left: 50%; top: 54%;'}
+      class:is-active={pad}
+      style={pad ? `left: ${pad.x}px; top: ${pad.y}px;` : 'left: 50%; top: 54%;'}
       aria-hidden="true"
     >
       <span class="pp-axis-h"></span>
@@ -339,7 +301,7 @@
         <p class="m-0 font-mono text-[10px] tracking-widest text-sage uppercase">Flight paused</p>
         <h2 id="pasture-guide-title" class="m-0 text-lg font-semibold">Field guide</h2>
       </div>
-      <button type="button" class="pp-btn rounded-sm border border-sage/40 px-3 py-2 font-mono text-xs" onclick={() => guideEl.close()}>Close guide</button>
+      <button type="button" class="focus-ring rounded-sm border border-sage/40 px-3 py-2 font-mono text-xs" onclick={() => guideEl.close()}>Close guide</button>
     </header>
     <div class="space-y-3 px-4 py-3 text-sm">
       <p>Steer with your cursor or drag in the lower touch zone. Your beam is always on: hover over a critter to collect it.</p>
@@ -368,7 +330,7 @@
       <div
         id="pasture-pause-panel"
         role="status"
-        class="w-full max-w-[300px] rounded-md border border-[rgba(213,215,207,0.14)] bg-surface p-6 text-center shadow-[0_24px_60px_rgba(0,0,0,0.65)]"
+        class="w-full max-w-[300px] rounded-md border border-ink/14 bg-surface p-6 text-center shadow-[0_24px_60px_rgba(0,0,0,0.65)]"
       >
         <p class="m-0 font-mono text-[10px] tracking-[0.14em] text-sage uppercase">Paused</p>
         <strong class="mt-1.5 block text-xl font-semibold tracking-tight text-ink">Flight Paused</strong>
@@ -376,23 +338,13 @@
         <button
           type="button"
           onclick={() => controller?.togglePause()}
-          class="pp-btn mt-5 inline-flex cursor-pointer items-center gap-1.5 rounded-sm border border-sage/50 bg-sage/20 px-4 py-2 font-mono text-xs font-medium text-ink transition-colors hover:bg-sage/32"
+          class="focus-ring mt-5 inline-flex cursor-pointer items-center gap-1.5 rounded-sm border border-sage/50 bg-sage/20 px-4 py-2 font-mono text-xs font-medium text-ink transition-colors hover:bg-sage/32"
         >
           <Icon icon={PlayIcon} size={13} strokeWidth={1.9} />
           <span>Resume</span>
         </button>
-        <button type="button" class="pp-btn mt-3 block w-full py-2 font-mono text-xs text-sage" aria-haspopup="dialog" onclick={openGuide}>Field guide</button>
+        <button type="button" class="focus-ring mt-3 block w-full py-2 font-mono text-xs text-sage" aria-haspopup="dialog" onclick={openGuide}>Field guide</button>
       </div>
-    </div>
-  {/if}
-
-  <!-- Error banner -->
-  {#if errorMessage}
-    <div
-      role="alert"
-      class="absolute top-1/2 left-1/2 z-40 max-w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-md border border-[#b86b58]/40 bg-surface px-5 py-4 text-center text-sm text-[#d49685]"
-    >
-      {errorMessage}
     </div>
   {/if}
 
@@ -402,13 +354,13 @@
       class="absolute inset-0 z-40 grid place-items-center bg-canvas/65 p-5 backdrop-blur-sm"
       aria-labelledby="pasture-game-over-title"
     >
-      <div class="w-full max-w-[340px] rounded-md border border-[rgba(213,215,207,0.14)] bg-surface p-7 text-center shadow-[0_24px_70px_rgba(0,0,0,0.7)]">
+      <div class="w-full max-w-[340px] rounded-md border border-ink/14 bg-surface p-7 text-center shadow-[0_24px_70px_rgba(0,0,0,0.7)]">
         <p class="m-0 font-mono text-[10px] tracking-[0.14em] text-ochre uppercase">Run Complete</p>
         <h2 id="pasture-game-over-title" class="mt-1.5 mb-5 text-2xl font-semibold tracking-tight text-ink">
           Flight Over
         </h2>
 
-        <div class="flex items-baseline justify-center gap-2.5 rounded-sm border border-[rgba(213,215,207,0.08)] bg-canvas/70 py-3 font-mono">
+        <div class="flex items-baseline justify-center gap-2.5 rounded-sm border border-ink/8 bg-canvas/70 py-3 font-mono">
           <span class="text-[10px] tracking-[0.12em] text-ink-dim uppercase">Score</span>
           <strong class="text-3xl font-semibold text-ink">{hud.score}</strong>
           <span class="text-[10px] tracking-wider text-sage uppercase">points</span>
@@ -417,7 +369,7 @@
         <button
           bind:this={restartBtnEl}
           type="button"
-          class="pp-btn mt-5 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-sm border border-sage/50 bg-sage/20 px-4 py-2.5 font-mono text-xs font-medium text-ink transition-colors hover:bg-sage/32"
+          class="focus-ring mt-5 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-sm border border-sage/50 bg-sage/20 px-4 py-2.5 font-mono text-xs font-medium text-ink transition-colors hover:bg-sage/32"
           onclick={() => controller?.restart()}
         >
           <Icon icon={RefreshIcon} size={14} strokeWidth={1.9} />
@@ -429,21 +381,6 @@
 </div>
 
 <style>
-  .pasture-viewport :global(canvas) {
-    position: absolute;
-    inset: 0;
-    display: block;
-    width: 100%;
-    height: 100%;
-    outline: none;
-    touch-action: none;
-  }
-
-  .pp-btn:focus-visible {
-    outline: 2px solid var(--color-sage);
-    outline-offset: 2px;
-  }
-
   /* Show floating circular touch pad on touch devices or narrow viewports */
   .pp-control-zone {
     display: none;

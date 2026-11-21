@@ -1,5 +1,21 @@
-import type * as THREE from 'three';
-import type { PartKind, PastureKit } from './pastureKit';
+import * as THREE from 'three';
+import { PASTURE_HEMI_GROUND, PASTURE_HEMI_SKY, PASTURE_SUN_COLOR, type PartKind, type PastureKit } from './pastureKit';
+
+/** Warm light over the table; sunZ picks which way shadows fall. */
+export function addTableLights(scene: THREE.Object3D, sunZ: number): () => void {
+  const sun = new THREE.DirectionalLight(PASTURE_SUN_COLOR, 2.4);
+  sun.position.set(-9, 22, sunZ);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  Object.assign(sun.shadow.camera, { near: 2, far: 48, left: -12, right: 12, top: 12, bottom: -12 });
+  sun.shadow.camera.updateProjectionMatrix();
+  sun.shadow.bias = -0.0005;
+  sun.shadow.normalBias = 0.025;
+  const fill = new THREE.DirectionalLight(0xd8e8d6, 0.55);
+  fill.position.set(10, 12, -8);
+  scene.add(new THREE.HemisphereLight(PASTURE_HEMI_SKY, PASTURE_HEMI_GROUND, 2.05), sun, fill);
+  return () => sun.shadow.dispose();
+}
 
 export function buildPastureTable(
   kit: PastureKit,
@@ -48,7 +64,7 @@ export function buildPastureTable(
     }
   }
 
-  // Perimeter wooden pasture fence (matches Pasture Patrol diorama!)
+  // Perimeter wooden pasture fence
   const hx = spanX / 2 + 0.16;
   const hz = spanZ / 2 + 0.16;
   const postStep = 2.0;

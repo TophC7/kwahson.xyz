@@ -1,12 +1,12 @@
-export const MASTER_GAIN = 0.85;
+const MASTER_GAIN = 0.85;
 
-export function audioContextClass(): typeof AudioContext | undefined {
+function audioContextClass(): typeof AudioContext | undefined {
   // DOM typings omit Safari's legacy AudioContext constructor.
   const legacyWindow = window as unknown as { webkitAudioContext?: typeof AudioContext };
   return window.AudioContext || legacyWindow.webkitAudioContext;
 }
 
-export function loadMuted(key: string): boolean {
+function loadMuted(key: string): boolean {
   try {
     return window.localStorage.getItem(key) === '1';
   } catch {
@@ -14,7 +14,7 @@ export function loadMuted(key: string): boolean {
   }
 }
 
-export function saveMuted(key: string, muted: boolean) {
+function saveMuted(key: string, muted: boolean) {
   try {
     window.localStorage.setItem(key, muted ? '1' : '0');
   } catch {
@@ -23,7 +23,7 @@ export function saveMuted(key: string, muted: boolean) {
 }
 
 /** Master gain -> gentle compressor -> destination. */
-export function createMasterBus(ctx: AudioContext, muted: boolean): GainNode {
+function createMasterBus(ctx: AudioContext, muted: boolean): GainNode {
   const compressor = ctx.createDynamicsCompressor();
   compressor.threshold.value = -16;
   compressor.knee.value = 12;
@@ -37,7 +37,7 @@ export function createMasterBus(ctx: AudioContext, muted: boolean): GainNode {
   return master;
 }
 
-export function createNoiseBuffer(ctx: AudioContext, seconds: number): AudioBuffer {
+function createNoiseBuffer(ctx: AudioContext, seconds: number): AudioBuffer {
   const length = Math.floor(ctx.sampleRate * seconds);
   const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
   const data = buffer.getChannelData(0);
@@ -57,7 +57,7 @@ export interface ToneOptions {
   filterEndFreq?: number;
 }
 
-export function scheduleTone(
+function scheduleTone(
   ctx: AudioContext,
   bus: AudioNode,
   {
@@ -104,38 +104,76 @@ export function scheduleTone(
   osc.stop(start + duration + 0.03);
 }
 
+export interface NoiseOptions {
+  freq: number;
+  /** Sweeps the filter to this frequency over duration. */
+  endFreq?: number;
+  filterType?: BiquadFilterType;
+  gain: number;
+  attack?: number;
+  duration?: number;
+  q?: number;
+  delay?: number;
+}
+
+export interface SfxHooks {
+  /** Runs once, when the context and master bus exist; build extra layers here. */
+  onGraph?(ctx: AudioContext, master: GainNode): void;
+  /** Runs when the context first reaches running. */
+  onUnlock?(): void;
+}
+
 export interface SfxEngine {
   isMuted(): boolean;
   setMuted(next: boolean): boolean;
+  /** Call from a user gesture: builds the graph and resumes a suspended context. */
   unlock(): void;
-  setHidden(next: boolean): void;
-  /** True when a sound may be scheduled now; builds and resumes the graph. */
+  /** True while autoplay policy holds the context, unless muted or audio is unavailable. */
+  isLocked(): boolean;
+  /** Gesture sounds may schedule while the context resumes. */
   ready(): boolean;
-  tone(opts: ToneOptions): void;
-  /** Band-passed noise tick: 3 ms attack, exponential decay over `duration`. */
-  noise(opts: { freq: number; gain: number; duration?: number; q?: number; delay?: number }): void;
+  /** Simulation sounds must not queue on a frozen clock. */
+  live(): boolean;
+  /** Plays into bus, or the master bus. */
+  tone(opts: ToneOptions, bus?: AudioNode): void;
+  /** Filtered noise tick: linear attack, exponential decay over duration. */
+  noise(opts: NoiseOptions): void;
   destroy(): void;
 }
 
-export function createSfxEngine(storageKey: string): SfxEngine {
+export function createSfxEngine(storageKey: string, hooks: SfxHooks = {}): SfxEngine {
   const AudioCtx = audioContextClass();
   let muted = loadMuted(storageKey);
-  let hidden = false;
+  let hidden = document.hidden;
+  let unavailable = !AudioCtx;
+  let unlocked = false;
   let destroyed = false;
   let ctx: AudioContext | null = null;
   let master: GainNode | null = null;
   let noiseBuffer: AudioBuffer | null = null;
 
+  function markUnlocked() {
+    if (unlocked || destroyed || ctx?.state !== 'running') return;
+    unlocked = true;
+    hooks.onUnlock?.();
+  }
+
   function ensureGraph(): boolean {
-    if (destroyed || !AudioCtx) return false;
+    if (destroyed || unavailable || !AudioCtx) return false;
     if (ctx) return true;
     try {
       ctx = new AudioCtx();
+      master = createMasterBus(ctx, muted);
+      noiseBuffer = createNoiseBuffer(ctx, 1);
+      hooks.onGraph?.(ctx, master);
     } catch {
+      unavailable = true;
+      ctx?.close().catch(() => {});
+      ctx = master = noiseBuffer = null;
       return false;
     }
-    master = createMasterBus(ctx, muted);
-    noiseBuffer = createNoiseBuffer(ctx, 1);
+    ctx.onstatechange = markUnlocked;
+    markUnlocked();
     return true;
   }
 
@@ -143,6 +181,14 @@ export function createSfxEngine(storageKey: string): SfxEngine {
     if (destroyed || muted || !ensureGraph() || !ctx) return;
     if (ctx.state === 'suspended' && !hidden) ctx.resume().catch(() => {});
   }
+
+  function onVisibility() {
+    hidden = document.hidden;
+    if (!ctx || destroyed) return;
+    if (hidden) ctx.suspend().catch(() => {});
+    else if (!muted) ctx.resume().catch(() => {});
+  }
+  document.addEventListener('visibilitychange', onVisibility);
 
   return {
     isMuted: () => muted,
@@ -156,34 +202,32 @@ export function createSfxEngine(storageKey: string): SfxEngine {
       return muted;
     },
     unlock,
-    setHidden(next) {
-      hidden = Boolean(next);
-      if (!ctx || destroyed) return;
-      if (hidden) ctx.suspend().catch(() => {});
-      else if (!muted) ctx.resume().catch(() => {});
-    },
+    isLocked: () => !unavailable && !muted && !unlocked,
+    live: () => !destroyed && !muted && !hidden && ctx?.state === 'running',
     ready() {
       if (destroyed || muted || hidden) return false;
       if (!ensureGraph() || !ctx || !master) return false;
       if (ctx.state === 'suspended') ctx.resume().catch(() => {});
       return true;
     },
-    tone(opts) {
-      if (ctx && master) scheduleTone(ctx, master, opts);
+    tone(opts, bus) {
+      const out = bus ?? master;
+      if (ctx && out) scheduleTone(ctx, out, opts);
     },
-    noise({ freq, gain, duration = 0.038, q = 3.2, delay = 0 }) {
+    noise({ freq, endFreq = freq, filterType = 'bandpass', gain, attack = 0.003, duration = 0.038, q = 3.2, delay = 0 }) {
       if (!ctx || !master || !noiseBuffer) return;
       const start = ctx.currentTime + delay;
       const src = ctx.createBufferSource();
       src.buffer = noiseBuffer;
       const bp = ctx.createBiquadFilter();
-      bp.type = 'bandpass';
+      bp.type = filterType;
       bp.frequency.setValueAtTime(freq, start);
+      if (endFreq !== freq) bp.frequency.exponentialRampToValueAtTime(Math.max(40, endFreq), start + duration);
       bp.Q.value = q;
 
       const env = ctx.createGain();
       env.gain.setValueAtTime(0.0001, start);
-      env.gain.linearRampToValueAtTime(gain, start + 0.003);
+      env.gain.linearRampToValueAtTime(gain, start + attack);
       env.gain.exponentialRampToValueAtTime(0.0001, start + duration);
 
       src.connect(bp);
@@ -195,7 +239,9 @@ export function createSfxEngine(storageKey: string): SfxEngine {
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      document.removeEventListener('visibilitychange', onVisibility);
       if (ctx) {
+        ctx.onstatechange = null;
         ctx.close().catch(() => {});
         ctx = null;
       }

@@ -1,9 +1,10 @@
+import type { MiniatureId } from '../../lib/miniatures';
 import { shuffle } from '../../lib/rng';
 
 export type TileSuit = 'herd' | 'farm' | 'harvest' | 'sky' | 'night' | 'season' | 'bloom';
 
 export interface TileDesign {
-  id: string;
+  id: MiniatureId;
   name: string;
   suit: TileSuit;
   badge: string;
@@ -175,8 +176,4 @@ export function buildDeckPairs(rng: () => number): [TileDesign, TileDesign][] {
   shuffle(pairs, rng);
 
   return pairs;
-}
-
-export function tilesMatch(a: TileDesign, b: TileDesign): boolean {
-  return a.matchKey === b.matchKey;
 }

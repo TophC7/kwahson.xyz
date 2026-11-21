@@ -6,6 +6,14 @@ import {
   type PastureKit,
 } from './pastureKit';
 
+type SmoothPrim = (
+  parent: THREE.Object3D,
+  color: number,
+  scale: [number, number, number],
+  pos?: [number, number, number],
+  roughness?: number,
+) => THREE.Mesh;
+
 /**
  * Studio helper passed into model builders so organic/sculpted models can use
  * smooth-shaded high-segment geometries, LatheGeometry, and ExtrudeGeometry,
@@ -15,7 +23,7 @@ export interface StudioBuilder {
   kit: PastureKit;
   /** Chunky flat-shaded Pasture Patrol primitive (for voxel/blocky assets). */
   part: PastureKit['part'];
-  /** Smooth-shaded mesh from any custom or smooth geometry. */
+  /** Mesh from any geometry; flat-shaded by default. */
   mesh(
     parent: THREE.Object3D,
     geo: THREE.BufferGeometry,
@@ -24,34 +32,8 @@ export interface StudioBuilder {
     opts?: { roughness?: number; flat?: boolean; opacity?: number; emissive?: number },
   ): THREE.Mesh;
   /** Shared smooth high-segment primitives for non-lumpy organic forms. */
-  smoothSphere(
-    parent: THREE.Object3D,
-    color: number,
-    scale: [number, number, number],
-    pos?: [number, number, number],
-    roughness?: number,
-  ): THREE.Mesh;
-  smoothCyl(
-    parent: THREE.Object3D,
-    color: number,
-    scale: [number, number, number],
-    pos?: [number, number, number],
-    roughness?: number,
-  ): THREE.Mesh;
-  smoothCone(
-    parent: THREE.Object3D,
-    color: number,
-    scale: [number, number, number],
-    pos?: [number, number, number],
-    roughness?: number,
-  ): THREE.Mesh;
-  smoothTorus(
-    parent: THREE.Object3D,
-    color: number,
-    scale: [number, number, number],
-    pos?: [number, number, number],
-    roughness?: number,
-  ): THREE.Mesh;
+  smoothCyl: SmoothPrim;
+  smoothTorus: SmoothPrim;
   track<T extends THREE.BufferGeometry>(geo: T): T;
   dispose(): void;
 }
@@ -61,17 +43,10 @@ export function createStudioBuilder(kit: PastureKit): StudioBuilder {
   const mats = new Map<string, THREE.MeshStandardMaterial>();
 
   const sharedSmooth = {
-    sphere: new THREE.SphereGeometry(1, 24, 18),
     cyl: new THREE.CylinderGeometry(1, 1, 1, 24),
-    cone: new THREE.ConeGeometry(1, 1, 20),
     torus: new THREE.TorusGeometry(1, 0.2, 14, 32),
   };
-  trackedGeos.push(
-    sharedSmooth.sphere,
-    sharedSmooth.cyl,
-    sharedSmooth.cone,
-    sharedSmooth.torus,
-  );
+  trackedGeos.push(sharedSmooth.cyl, sharedSmooth.torus);
 
   function getMat(color: number, roughness: number, flat: boolean, opacity: number, emissive: number) {
     const key = `${color}:${roughness}:${flat ? 1 : 0}:${opacity}:${emissive}`;
@@ -108,7 +83,7 @@ export function createStudioBuilder(kit: PastureKit): StudioBuilder {
       getMat(
         color,
         opts.roughness ?? 0.62,
-        opts.flat ?? false,
+        opts.flat ?? true,
         opts.opacity ?? 1,
         opts.emissive ?? 0,
       ),
@@ -126,7 +101,7 @@ export function createStudioBuilder(kit: PastureKit): StudioBuilder {
     pos: [number, number, number] = [0, 0, 0],
     roughness = 0.6,
   ) {
-    const m = mesh(parent, geo, color, pos, { roughness });
+    const m = mesh(parent, geo, color, pos, { flat: false, roughness });
     m.scale.set(...scale);
     return m;
   }
@@ -135,9 +110,7 @@ export function createStudioBuilder(kit: PastureKit): StudioBuilder {
     kit,
     part: kit.part,
     mesh,
-    smoothSphere: (p, c, s, pos, r) => smoothPrim(p, sharedSmooth.sphere, c, s, pos, r),
     smoothCyl: (p, c, s, pos, r) => smoothPrim(p, sharedSmooth.cyl, c, s, pos, r),
-    smoothCone: (p, c, s, pos, r) => smoothPrim(p, sharedSmooth.cone, c, s, pos, r),
     smoothTorus: (p, c, s, pos, r) => smoothPrim(p, sharedSmooth.torus, c, s, pos, r),
     track,
     dispose() {
@@ -149,7 +122,7 @@ export function createStudioBuilder(kit: PastureKit): StudioBuilder {
   };
 }
 
-/** Lit orthographic studio shared by the tile-face bake and the gallery turntable. */
+/** Lit orthographic studio for baking and spinning single models. */
 export function createStudioStage(): { scene: THREE.Scene; camera: THREE.OrthographicCamera } {
   const scene = new THREE.Scene();
   scene.add(new THREE.HemisphereLight(PASTURE_HEMI_SKY, PASTURE_HEMI_GROUND, 2.35));
@@ -328,7 +301,7 @@ function makeNovaLogoGroup(
 
   // Low-poly center sphere
   const coreGeo = track(new THREE.SphereGeometry(opts.coreRadius, 12, 8));
-  mesh(g, coreGeo, opts.coreColor, [0, 0, 0], { flat: true, roughness: 0.85 });
+  mesh(g, coreGeo, opts.coreColor, [0, 0, 0], { roughness: 0.85 });
 
   // Flat-extruded annular ring (zero bevels, crisp polygonal sides)
   const segs = opts.ringSegments ?? 16;
@@ -356,7 +329,7 @@ function makeNovaLogoGroup(
     }),
   );
   ringGeo.translate(0, 0, -opts.depth / 2);
-  mesh(g, ringGeo, opts.ringColor, [0, 0, 0], { flat: true, roughness: 0.85 });
+  mesh(g, ringGeo, opts.ringColor, [0, 0, 0], { roughness: 0.85 });
 
   const makeRayGeo = (baseHalf: number, tipDist: number) => {
     const startDist = (opts.ringInner + opts.ringOuter) * 0.5;
@@ -379,16 +352,10 @@ function makeNovaLogoGroup(
   const step = (Math.PI * 2) / opts.primaryCount;
 
   for (let i = 0; i < opts.primaryCount; i++) {
-    const pRay = mesh(g, primaryRayGeo, opts.primaryColor, [0, 0, 0], {
-      flat: true,
-      roughness: 0.85,
-    });
+    const pRay = mesh(g, primaryRayGeo, opts.primaryColor, [0, 0, 0], { roughness: 0.85 });
     pRay.rotation.z = i * step;
 
-    const sRay = mesh(g, secondaryRayGeo, opts.secondaryColor, [0, 0, 0], {
-      flat: true,
-      roughness: 0.85,
-    });
+    const sRay = mesh(g, secondaryRayGeo, opts.secondaryColor, [0, 0, 0], { roughness: 0.85 });
     sRay.rotation.z = i * step + step / 2;
   }
 
@@ -422,20 +389,41 @@ function makeCrescentGeo(studio: StudioBuilder): THREE.ExtrudeGeometry {
   return studio.track(geo);
 }
 
-export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
-  const { kit, part, mesh, smoothSphere, smoothCyl, smoothCone, smoothTorus, track } = studio;
+function addPumpkinLobes(studio: StudioBuilder, parent: THREE.Object3D) {
+  const lobeGeo = studio.track(new THREE.SphereGeometry(1, 7, 5));
+  for (let i = 0; i < 7; i++) {
+    const a = (i * Math.PI * 2) / 7;
+    const lobe = studio.mesh(
+      parent,
+      lobeGeo,
+      i % 2 === 0 ? 0xe07628 : 0xc9631d,
+      [Math.cos(a) * 0.23, 0.36, Math.sin(a) * 0.23],
+      { roughness: 0.88 },
+    );
+    lobe.scale.set(0.3, 0.36, 0.25);
+    lobe.rotation.y = -a;
+  }
+}
+
+export type MiniatureId =
+  | 'cow' | 'healer-cow' | 'hay-bale' | 'rock' | 'stump' | 'crate' | 'ufo' | 'bee'
+  | 'sheep' | 'pig' | 'chicken' | 'duck' | 'goat' | 'barn-cat' | 'barn' | 'tractor'
+  | 'silo' | 'windmill' | 'well' | 'milk-churn' | 'corn' | 'pumpkin' | 'apple' | 'carrot'
+  | 'honey-jar' | 'straw-hat' | 'watering-can' | 'egg' | 'scarecrow' | 'scout-pod' | 'alien' | 'sprout-red'
+  | 'sprout-yellow' | 'sprout-blue' | 'brute' | 'lobber' | 'corn-wall' | 'sprouts' | 'moon' | 'lantern'
+  | 'comet' | 'season-spring' | 'season-summer' | 'season-autumn' | 'season-winter' | 'bloom-hibiscus' | 'bloom-sunflower' | 'bloom-allium'
+  | 'bloom-forget-me-not';
+
+export function buildMiniature(studio: StudioBuilder, id: MiniatureId): THREE.Group {
+  const { kit, part, mesh, smoothCyl, smoothTorus, track } = studio;
 
   switch (id) {
     // -------------------------------------------------------------------------
     // EXISTING PASTURE PATROL ASSETS (reused verbatim from PastureKit)
     // -------------------------------------------------------------------------
-    case 'cow': {
-      const g = kit.makeCow({ special: false }).mesh;
-      g.rotation.y = 0.25;
-      return g;
-    }
+    case 'cow':
     case 'healer-cow': {
-      const g = kit.makeCow({ special: true }).mesh;
+      const g = kit.makeCow({ special: id === 'healer-cow' }).mesh;
       g.rotation.y = 0.25;
       return g;
     }
@@ -573,7 +561,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
           part(g, 'box', 0x8d5260, [0.14, 0.08, 0.14], [x, 0.07, z]);
         }
       }
-      const tail = mesh(g, track(new THREE.TorusGeometry(0.11, 0.0264, 8, 18)), deep, [0, 0.58, -0.45], { flat: true, roughness: 0.85 });
+      const tail = mesh(g, track(new THREE.TorusGeometry(0.11, 0.0264, 8, 18)), deep, [0, 0.58, -0.45], { roughness: 0.85 });
       tail.rotation.y = Math.PI / 2;
       g.rotation.y = 0.28;
       return g;
@@ -866,7 +854,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         new THREE.Vector2(0.32, 0.04),
       ];
       const wellGeo = track(new THREE.LatheGeometry(wellProfile, 16));
-      mesh(g, wellGeo, stone, [0, 0, 0], { flat: true, roughness: 0.88 });
+      mesh(g, wellGeo, stone, [0, 0, 0], { roughness: 0.88 });
       // Subtle top capstone ring accent
       const capGeo = track(
         new THREE.LatheGeometry(
@@ -879,7 +867,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
           16,
         ),
       );
-      mesh(g, capGeo, stoneRim, [0, 0, 0], { flat: true, roughness: 0.85 });
+      mesh(g, capGeo, stoneRim, [0, 0, 0], { roughness: 0.85 });
 
       // Dark inner shaft base + recessed shimmering water partway down (y = 0.30, well below 0.52 rim!)
       smoothCyl(g, 0x263236, [0.33, 0.08, 0.33], [0, 0.08, 0], 0.9);
@@ -929,10 +917,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         new THREE.Vector2(0.15, 0.8),
         new THREE.Vector2(0.0, 0.8),
       ];
-      mesh(g, track(new THREE.LatheGeometry(milkPts, 10)), 0xfbf6ea, [0, 0, 0], {
-        flat: true,
-        roughness: 0.82,
-      });
+      mesh(g, track(new THREE.LatheGeometry(milkPts, 10)), 0xfbf6ea, [0, 0, 0], { roughness: 0.82 });
 
       // Clean 10-sided low-poly translucent pale-aqua glass milk bottle shell
       const bottlePts = [
@@ -946,17 +931,13 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         new THREE.Vector2(0.2, 1.08),
         new THREE.Vector2(0.0, 1.08),
       ];
-      mesh(g, track(new THREE.LatheGeometry(bottlePts, 10)), 0xd6eceb, [0, 0, 0], {
-        flat: true,
-        roughness: 0.42,
-        opacity: 0.36,
-      });
+      mesh(g, track(new THREE.LatheGeometry(bottlePts, 10)), 0xd6eceb, [0, 0, 0], { roughness: 0.42, opacity: 0.36 });
 
       // Simple dairy blue stripe band + classic red farm foil cap
       const bandGeo = track(new THREE.CylinderGeometry(0.336, 0.336, 0.16, 10));
-      mesh(g, bandGeo, 0x5c8aa3, [0, 0.36, 0], { flat: true, roughness: 0.84 });
+      mesh(g, bandGeo, 0x5c8aa3, [0, 0.36, 0], { roughness: 0.84 });
       const capGeo = track(new THREE.CylinderGeometry(0.21, 0.22, 0.12, 10));
-      mesh(g, capGeo, 0xd14c44, [0, 1.1, 0], { flat: true, roughness: 0.78 });
+      mesh(g, capGeo, 0xd14c44, [0, 1.1, 0], { roughness: 0.78 });
       return g;
     }
 
@@ -974,7 +955,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         new THREE.Vector2(0.0, 1.15),
       ];
       const cobGeo = track(new THREE.LatheGeometry(cobPts, 20));
-      mesh(g, cobGeo, 0xf3c842, [0, 0, 0], { roughness: 0.55 });
+      mesh(g, cobGeo, 0xf3c842, [0, 0, 0], { flat: false, roughness: 0.55 });
 
       // Subtle golden kernel bead rows along the exposed upper cob
       for (let row = 0; row < 5; row++) {
@@ -994,9 +975,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         const holder = new THREE.Group();
         holder.position.set(0, 0.08, 0);
         holder.rotation.y = a;
-        const husk = mesh(holder, huskGeo, i === 0 ? 0x6ba14d : 0x5c9142, [0, 0, 0.18], {
-          roughness: 0.68,
-        });
+        const husk = mesh(holder, huskGeo, i === 0 ? 0x6ba14d : 0x5c9142, [0, 0, 0.18], { flat: false, roughness: 0.68 });
         husk.rotation.x = 0.36;
         g.add(holder);
       }
@@ -1008,27 +987,13 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
     case 'pumpkin': {
       // Matte flat-shaded low-poly ribbed pumpkin
       const g = new THREE.Group();
-      const orange = 0xe07628;
-      const deepOrange = 0xc9631d;
-      const lobeGeo = track(new THREE.SphereGeometry(1, 7, 5));
-      for (let i = 0; i < 7; i++) {
-        const a = (i * Math.PI * 2) / 7;
-        const lobe = mesh(
-          g,
-          lobeGeo,
-          i % 2 === 0 ? orange : deepOrange,
-          [Math.cos(a) * 0.23, 0.36, Math.sin(a) * 0.23],
-          { flat: true, roughness: 0.88 },
-        );
-        lobe.scale.set(0.3, 0.36, 0.25);
-        lobe.rotation.y = -a;
-      }
+      addPumpkinLobes(studio, g);
 
       // Chunky low-poly tilted green stem + simple angular leaf
       const stem = part(g, 'cylinder', 0x587342, [0.075, 0.26, 0.075], [0.03, 0.76, 0]);
       stem.rotation.z = -0.26;
       const leafGeo = makeLowPolyPetalGeo(studio, 0.32, 0.15, 0.03);
-      const leaf = mesh(g, leafGeo, 0x6ea052, [-0.03, 0.68, 0.06], { flat: true, roughness: 0.86 });
+      const leaf = mesh(g, leafGeo, 0x6ea052, [-0.03, 0.68, 0.06], { roughness: 0.86 });
       leaf.rotation.z = 0.9;
       leaf.rotation.x = 0.45;
       return g;
@@ -1048,13 +1013,13 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         new THREE.Vector2(0.0, 0.8),
       ];
       const appleGeo = track(new THREE.LatheGeometry(applePts, 8));
-      mesh(g, appleGeo, 0xcf453e, [0, 0, 0], { flat: true, roughness: 0.86 });
+      mesh(g, appleGeo, 0xcf453e, [0, 0, 0], { roughness: 0.86 });
 
       // Simple low-poly woody stem + sharp flat-extruded leaf
       const stem = part(g, 'box', 0x6e4d32, [0.07, 0.28, 0.07], [-0.02, 0.95, 0]);
       stem.rotation.z = 0.18;
       const leafGeo = makeLowPolyPetalGeo(studio, 0.38, 0.15, 0.032);
-      const leaf = mesh(g, leafGeo, 0x6ba64c, [0.02, 0.94, 0.02], { flat: true, roughness: 0.86 });
+      const leaf = mesh(g, leafGeo, 0x6ba64c, [0.02, 0.94, 0.02], { roughness: 0.86 });
       leaf.rotation.z = -1.0;
       leaf.rotation.y = 0.3;
       return g;
@@ -1075,7 +1040,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         new THREE.Vector2(0.0, 1.26),
       ];
       const carrotGeo = track(new THREE.LatheGeometry(carrotPts, 24));
-      mesh(g, carrotGeo, 0xe8762c, [0, 0, 0], { roughness: 0.54 });
+      mesh(g, carrotGeo, 0xe8762c, [0, 0, 0], { flat: false, roughness: 0.54 });
 
       // Subtle organic horizontal root ridges
       for (const [y, r] of [
@@ -1094,9 +1059,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         const holder = new THREE.Group();
         holder.position.set(0, 1.22, 0);
         holder.rotation.y = a;
-        const frond = mesh(holder, frondGeo, i % 2 === 0 ? 0x629e49 : 0x73b256, [0, 0, 0], {
-          roughness: 0.62,
-        });
+        const frond = mesh(holder, frondGeo, i % 2 === 0 ? 0x629e49 : 0x73b256, [0, 0, 0], { flat: false, roughness: 0.62 });
         frond.rotation.x = 0.34;
         g.add(holder);
       }
@@ -1111,7 +1074,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
 
       // Inner deep amber honey fill (visible cleanly through the glass!)
       const honeyGeo = track(new THREE.CylinderGeometry(0.34, 0.34, 0.62, 10));
-      mesh(g, honeyGeo, 0xe0780f, [0, 0.36, 0], { flat: true, roughness: 0.78 });
+      mesh(g, honeyGeo, 0xe0780f, [0, 0.36, 0], { roughness: 0.78 });
 
       // Clean low-poly 10-sided translucent pale glass mason jar shell
       const glassPts = [
@@ -1124,13 +1087,13 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         new THREE.Vector2(0.0, 0.94),
       ];
       const glassGeo = track(new THREE.LatheGeometry(glassPts, 10));
-      mesh(g, glassGeo, 0xdff0ed, [0, 0, 0], { flat: true, roughness: 0.4, opacity: 0.24 });
+      mesh(g, glassGeo, 0xdff0ed, [0, 0, 0], { roughness: 0.4, opacity: 0.24 });
 
       // Simple clean low-poly silver-tin mason screw lid
       const lidGeo = track(new THREE.CylinderGeometry(0.35, 0.35, 0.14, 10));
-      mesh(g, lidGeo, 0xadb8b5, [0, 0.96, 0], { flat: true, roughness: 0.65 });
+      mesh(g, lidGeo, 0xadb8b5, [0, 0.96, 0], { roughness: 0.65 });
       const lidTopGeo = track(new THREE.CylinderGeometry(0.31, 0.31, 0.04, 10));
-      mesh(g, lidTopGeo, 0xc7d1ce, [0, 1.04, 0], { flat: true, roughness: 0.65 });
+      mesh(g, lidTopGeo, 0xc7d1ce, [0, 1.04, 0], { roughness: 0.65 });
       return g;
     }
 
@@ -1138,11 +1101,11 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       // Exact same conical farmer straw hat as Scarecrow, pinned with a tiny astral-blue Star charm!
       const g = new THREE.Group();
       const brimGeo = track(new THREE.CylinderGeometry(0.72, 0.76, 0.08, 8));
-      mesh(g, brimGeo, 0xe8c460, [0, 0.08, 0], { flat: true, roughness: 0.86 });
+      mesh(g, brimGeo, 0xe8c460, [0, 0.08, 0], { roughness: 0.86 });
       const bandGeo = track(new THREE.CylinderGeometry(0.41, 0.43, 0.15, 8));
-      mesh(g, bandGeo, 0x5c8556, [0, 0.18, 0], { flat: true, roughness: 0.86 });
+      mesh(g, bandGeo, 0x5c8556, [0, 0.18, 0], { roughness: 0.86 });
       const crownGeo = track(new THREE.ConeGeometry(0.41, 0.58, 8));
-      mesh(g, crownGeo, 0xd9b14e, [0, 0.52, 0], { flat: true, roughness: 0.86 });
+      mesh(g, crownGeo, 0xd9b14e, [0, 0.52, 0], { roughness: 0.86 });
 
       // Tiny 3D NovaMark Star charm pinned cleanly onto the front-right of the sage hatband!
       const starCharm = makeNovaLogoGroup(studio, {
@@ -1181,9 +1144,9 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
 
       // Chunky 8-sided tapered metal can body + crisp base & top rims
       const bodyGeo = track(new THREE.CylinderGeometry(0.35, 0.4, 0.62, 8));
-      mesh(g, bodyGeo, bodyBlue, [0, 0.31, 0], { flat: true, roughness: 0.84 });
+      mesh(g, bodyGeo, bodyBlue, [0, 0.31, 0], { roughness: 0.84 });
       const baseRimGeo = track(new THREE.CylinderGeometry(0.42, 0.42, 0.06, 8));
-      mesh(g, baseRimGeo, trimBlue, [0, 0.03, 0], { flat: true, roughness: 0.84 });
+      mesh(g, baseRimGeo, trimBlue, [0, 0.03, 0], { roughness: 0.84 });
       // Hollow octagonal brass top rim + recessed dark open water basin inside
       const topRimPts = [
         new THREE.Vector2(0.35, 0.59),
@@ -1192,24 +1155,21 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         new THREE.Vector2(0.3, 0.65),
         new THREE.Vector2(0.3, 0.61),
       ];
-      mesh(g, track(new THREE.LatheGeometry(topRimPts, 8)), brass, [0, 0, 0], {
-        flat: true,
-        roughness: 0.78,
-      });
+      mesh(g, track(new THREE.LatheGeometry(topRimPts, 8)), brass, [0, 0, 0], { roughness: 0.78 });
       const waterGeo = track(new THREE.CylinderGeometry(0.3, 0.3, 0.016, 8));
-      mesh(g, waterGeo, 0x2c4e63, [0, 0.63, 0], { flat: true, roughness: 0.6 });
+      mesh(g, waterGeo, 0x2c4e63, [0, 0.63, 0], { roughness: 0.6 });
 
       // Bold straight faceted tapered spout angled cleanly at 45 deg
       const spoutGeo = track(new THREE.CylinderGeometry(0.065, 0.13, 0.68, 6));
-      const spout = mesh(g, spoutGeo, bodyBlue, [0.54, 0.44, 0], { flat: true, roughness: 0.84 });
+      const spout = mesh(g, spoutGeo, bodyBlue, [0.54, 0.44, 0], { roughness: 0.84 });
       spout.rotation.z = -0.82;
 
       // Wide chunky brass sprinkler rose head at spout tip
       const roseConeGeo = track(new THREE.CylinderGeometry(0.18, 0.07, 0.15, 8));
-      const rose = mesh(g, roseConeGeo, brass, [0.82, 0.69, 0], { flat: true, roughness: 0.76 });
+      const rose = mesh(g, roseConeGeo, brass, [0.82, 0.69, 0], { roughness: 0.76 });
       rose.rotation.z = -0.82;
       const roseCapGeo = track(new THREE.CylinderGeometry(0.16, 0.16, 0.03, 8));
-      const roseCap = mesh(g, roseCapGeo, 0x997324, [0.87, 0.74, 0], { flat: true, roughness: 0.82 });
+      const roseCap = mesh(g, roseCapGeo, 0x997324, [0.87, 0.74, 0], { roughness: 0.82 });
       roseCap.rotation.z = -0.82;
 
       // Clean geometric side carry handle only
@@ -1230,7 +1190,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         new THREE.Vector2(0, 0), new THREE.Vector2(0.12, 0.03), new THREE.Vector2(0.17, 0.12),
         new THREE.Vector2(0.15, 0.24), new THREE.Vector2(0.09, 0.33), new THREE.Vector2(0, 0.37),
       ];
-      mesh(g, track(new THREE.LatheGeometry(profile, 8)), 0xfaf5ea, [0, 0.04, 0], { flat: true, roughness: 0.85 });
+      mesh(g, track(new THREE.LatheGeometry(profile, 8)), 0xfaf5ea, [0, 0.04, 0], { roughness: 0.85 });
       part(g, 'box', 0xd9c9a8, [0.03, 0.03, 0.01], [-0.065, 0.17, 0.143]).rotation.y = -Math.PI / 8;
       part(g, 'box', 0xd9c9a8, [0.03, 0.03, 0.01], [0.05, 0.22, 0.14]).rotation.y = Math.PI / 8;
       part(g, 'box', 0xd9c9a8, [0.03, 0.03, 0.01], [-0.03, 0.29, 0.131]).rotation.y = -Math.PI / 8;
@@ -1248,7 +1208,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
 
       // Small meadow mound + sturdy wooden cross-post staked into the ground
       const moundGeo = track(new THREE.CylinderGeometry(0.32, 0.38, 0.1, 8));
-      mesh(g, moundGeo, 0x7aa652, [0, 0.05, 0], { flat: true, roughness: 0.88 });
+      mesh(g, moundGeo, 0x7aa652, [0, 0.05, 0], { roughness: 0.88 });
       part(g, 'cylinder', post, [0.06, 1.05, 0.06], [0, 0.54, 0]);
       part(g, 'box', post, [1.08, 0.075, 0.075], [0, 0.72, 0]);
 
@@ -1271,19 +1231,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       head.position.set(0, 0.85, 0);
       head.scale.setScalar(0.56);
       g.add(head);
-      const lobeGeo = track(new THREE.SphereGeometry(1, 7, 5));
-      for (let i = 0; i < 7; i++) {
-        const a = (i * Math.PI * 2) / 7;
-        const lobe = mesh(
-          head,
-          lobeGeo,
-          i % 2 === 0 ? 0xe07628 : 0xc9631d,
-          [Math.cos(a) * 0.23, 0.36, Math.sin(a) * 0.23],
-          { flat: true, roughness: 0.88 },
-        );
-        lobe.scale.set(0.3, 0.36, 0.25);
-        lobe.rotation.y = -a;
-      }
+      addPumpkinLobes(studio, head);
       // Classic carved scarecrow face (two dark triangular eyes + cute triangle nose)
       for (const side of [-1, 1]) {
         const eye = part(head, 'cone', 0x2a1d15, [0.095, 0.13, 0.06], [side * 0.19, 0.44, 0.44]);
@@ -1299,11 +1247,11 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       hat.rotation.x = -0.08;
       g.add(hat);
       const brimGeo = track(new THREE.CylinderGeometry(0.42, 0.44, 0.05, 8));
-      mesh(hat, brimGeo, straw, [0, 0, 0], { flat: true, roughness: 0.86 });
+      mesh(hat, brimGeo, straw, [0, 0, 0], { roughness: 0.86 });
       const bandGeo = track(new THREE.CylinderGeometry(0.24, 0.25, 0.09, 8));
-      mesh(hat, bandGeo, 0x5c8556, [0, 0.06, 0], { flat: true, roughness: 0.86 });
+      mesh(hat, bandGeo, 0x5c8556, [0, 0.06, 0], { roughness: 0.86 });
       const crownGeo = track(new THREE.ConeGeometry(0.24, 0.34, 8));
-      mesh(hat, crownGeo, 0xd9b14e, [0, 0.25, 0], { flat: true, roughness: 0.86 });
+      mesh(hat, crownGeo, 0xd9b14e, [0, 0.25, 0], { roughness: 0.86 });
 
       g.rotation.y = 0.26;
       return g;
@@ -1331,10 +1279,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         new THREE.Vector2(0.16, 1.14),
         new THREE.Vector2(0.0, 1.24),
       ];
-      mesh(g, track(new THREE.LatheGeometry(hullPts, 8)), cream, [0, 0, 0], {
-        flat: true,
-        roughness: 0.85,
-      });
+      mesh(g, track(new THREE.LatheGeometry(hullPts, 8)), cream, [0, 0, 0], { roughness: 0.85 });
 
       // Signature red Pikmin nosecone cap + lower belly accent band
       const nosePts = [
@@ -1342,12 +1287,9 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         new THREE.Vector2(0.16, 1.14),
         new THREE.Vector2(0.0, 1.25),
       ];
-      mesh(g, track(new THREE.LatheGeometry(nosePts, 8)), red, [0, 0, 0], {
-        flat: true,
-        roughness: 0.85,
-      });
+      mesh(g, track(new THREE.LatheGeometry(nosePts, 8)), red, [0, 0, 0], { roughness: 0.85 });
       const bandGeo = track(new THREE.CylinderGeometry(0.425, 0.34, 0.14, 8));
-      mesh(g, bandGeo, red, [0, 0.34, 0], { flat: true, roughness: 0.85 });
+      mesh(g, bandGeo, red, [0, 0.34, 0], { roughness: 0.85 });
 
       // Chunky low-poly bulbous cockpit window bubble on the front
       part(g, 'sphere', glass, [0.22, 0.22, 0.16], [0, 0.7, 0.33]);
@@ -1404,6 +1346,65 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       return g;
     }
 
+    case 'brute': {
+      const g = new THREE.Group();
+      part(g, 'box', 0x4fb85a, [0.62, 0.5, 0.46], [0, 0.5, 0]);
+      part(g, 'box', 0x8fe08a, [0.4, 0.3, 0.03], [0, 0.46, 0.235]);
+      part(g, 'box', 0x67d964, [0.44, 0.3, 0.4], [0, 0.9, 0.04]);
+      for (const side of [-1, 1]) {
+        part(g, 'cylinder', 0x4fb85a, [0.04, 0.16, 0.04], [side * 0.16, 1.12, 0.04]).rotation.z = -side * 0.5;
+        part(g, 'sphere', 0x67d964, [0.07, 0.05, 0.07], [side * 0.2, 1.2, 0.04]);
+        part(g, 'sphere', 0x111613, [0.1, 0.05, 0.03], [side * 0.11, 0.92, 0.24]).rotation.z = side * 0.3;
+        part(g, 'box', 0x3f9a4a, [0.2, 0.44, 0.24], [side * 0.44, 0.46, 0.04]);
+        part(g, 'box', 0x4fb85a, [0.26, 0.2, 0.28], [side * 0.44, 0.2, 0.08]);
+        part(g, 'box', 0x3f9a4a, [0.2, 0.26, 0.22], [side * 0.17, 0.13, 0]);
+        part(g, 'box', 0x454f4c, [0.26, 0.08, 0.3], [side * 0.44, 0.72, 0.04]);
+      }
+      g.rotation.y = 0.46;
+      return g;
+    }
+    case 'lobber': {
+      // Blocky four-legged mortar walker in saucer teal.
+      const g = new THREE.Group();
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          part(g, 'box', 0x3d7167, [0.1, 0.2, 0.1], [sx * 0.2, 0.1, sz * 0.15]);
+          part(g, 'box', 0xebb84c, [0.14, 0.05, 0.14], [sx * 0.2, 0.025, sz * 0.15]);
+        }
+      }
+      part(g, 'box', 0x5eaea4, [0.56, 0.3, 0.48], [0, 0.34, 0]);
+      part(g, 'box', 0x3d7167, [0.6, 0.06, 0.52], [0, 0.26, 0]);
+      for (const x of [-0.2, 0, 0.2]) part(g, 'box', 0xffdc76, [0.06, 0.04, 0.02], [x, 0.26, 0.265]);
+      part(g, 'box', 0x111613, [0.14, 0.11, 0.02], [0, 0.39, 0.245]);
+      part(g, 'box', 0xc7f6dc, [0.04, 0.04, 0.01], [0.03, 0.41, 0.256]);
+      part(g, 'box', 0x3d7167, [0.3, 0.12, 0.3], [0, 0.55, -0.02]);
+      const barrel = new THREE.Group();
+      barrel.position.set(0, 0.58, -0.04);
+      barrel.rotation.x = 0.4;
+      g.add(barrel);
+      part(barrel, 'box', 0x454f4c, [0.18, 0.4, 0.18], [0, 0.2, 0]);
+      part(barrel, 'box', 0xebb84c, [0.22, 0.06, 0.22], [0, 0.4, 0]);
+      part(barrel, 'box', 0xff8f5a, [0.11, 0.11, 0.11], [0, 0.45, 0]);
+      g.rotation.y = 0.35;
+      return g;
+    }
+    case 'corn-wall': {
+      // Blocky row of three corn stalks on a dirt bed.
+      const g = new THREE.Group();
+      part(g, 'box', 0x9b684a, [0.92, 0.08, 0.32], [0, 0.04, 0]);
+      for (const [x, h] of [[-0.3, 0.84], [0, 1.0], [0.3, 0.9]]) {
+        part(g, 'box', 0x6f9b4d, [0.08, h, 0.08], [x, 0.08 + h / 2, 0]);
+        part(g, 'box', 0x7fb05a, [0.24, 0.05, 0.1], [x - 0.1, 0.3, 0]).rotation.z = 0.5;
+        part(g, 'box', 0x7fb05a, [0.24, 0.05, 0.1], [x + 0.1, 0.52, 0]).rotation.z = -0.5;
+        part(g, 'box', 0xa9c96a, [0.13, 0.1, 0.13], [x + 0.07, 0.5, 0.07]);
+        part(g, 'box', 0xf2c63b, [0.11, 0.2, 0.11], [x + 0.07, 0.64, 0.07]);
+        part(g, 'box', 0xe6b853, [0.16, 0.05, 0.05], [x, 0.1 + h, 0]);
+        part(g, 'box', 0xe6b853, [0.05, 0.1, 0.05], [x, 0.14 + h, 0]);
+      }
+      g.rotation.y = 0.2;
+      return g;
+    }
+
     case 'sprouts': {
       // Blue, yellow and red sprouts huddled side by side.
       const g = new THREE.Group();
@@ -1425,10 +1426,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       // Crisp flat-extruded low-poly Crescent Moon + mini 3D NovaMark logo star!
       const g = new THREE.Group();
       const crescentGeo = makeCrescentGeo(studio);
-      const crescent = mesh(g, crescentGeo, 0xf3cc5a, [-0.08, 0.56, 0], {
-        flat: true,
-        roughness: 0.85,
-      });
+      const crescent = mesh(g, crescentGeo, 0xf3cc5a, [-0.08, 0.56, 0], { roughness: 0.85 });
       crescent.rotation.z = 0.22;
 
       // Mini flat-extruded NovaMark star nestled inside the crescent curve
@@ -1465,9 +1463,9 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
 
       // Stepped octagonal wrought-iron base + brass oil tank collar
       const footGeo = track(new THREE.CylinderGeometry(0.34, 0.4, 0.12, 8));
-      mesh(g, footGeo, iron, [0, 0.06, 0], { flat: true, roughness: 0.84 });
+      mesh(g, footGeo, iron, [0, 0.06, 0], { roughness: 0.84 });
       const tankGeo = track(new THREE.CylinderGeometry(0.32, 0.35, 0.12, 8));
-      mesh(g, tankGeo, brass, [0, 0.18, 0], { flat: true, roughness: 0.74 });
+      mesh(g, tankGeo, brass, [0, 0.18, 0], { roughness: 0.74 });
 
       // Faceted bulged glowing warm amber-honey lantern glass globe (clean clearance inside cage!)
       const globePts = [
@@ -1478,11 +1476,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         new THREE.Vector2(0.22, 0.82),
         new THREE.Vector2(0.0, 0.82),
       ];
-      mesh(g, track(new THREE.LatheGeometry(globePts, 8)), 0xffcf54, [0, 0, 0], {
-        flat: true,
-        roughness: 0.45,
-        emissive: 0xe89824,
-      });
+      mesh(g, track(new THREE.LatheGeometry(globePts, 8)), 0xffcf54, [0, 0, 0], { roughness: 0.45, emissive: 0xe89824 });
 
       // 4 crisp dark-iron vertical protective guard struts cleanly outside globe
       for (let i = 0; i < 4; i++) {
@@ -1499,14 +1493,14 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
 
       // Wide stepped iron eaves cap + brass vent chimney + top hanging bail ring
       const capGeo = track(new THREE.CylinderGeometry(0.22, 0.42, 0.16, 8));
-      mesh(g, capGeo, iron, [0, 0.88, 0], { flat: true, roughness: 0.84 });
+      mesh(g, capGeo, iron, [0, 0.88, 0], { roughness: 0.84 });
       const ventGeo = track(new THREE.CylinderGeometry(0.16, 0.2, 0.14, 8));
-      mesh(g, ventGeo, brass, [0, 1.02, 0], { flat: true, roughness: 0.74 });
+      mesh(g, ventGeo, brass, [0, 1.02, 0], { roughness: 0.74 });
       const finialGeo = track(new THREE.CylinderGeometry(0.08, 0.18, 0.08, 8));
-      mesh(g, finialGeo, iron, [0, 1.12, 0], { flat: true, roughness: 0.84 });
+      mesh(g, finialGeo, iron, [0, 1.12, 0], { roughness: 0.84 });
 
       const bailGeo = track(new THREE.TorusGeometry(0.16, 0.028, 6, 10));
-      mesh(g, bailGeo, iron, [0, 1.24, 0], { flat: true, roughness: 0.84 });
+      mesh(g, bailGeo, iron, [0, 1.24, 0], { roughness: 0.84 });
 
       g.rotation.y = 0.35;
       return g;
@@ -1546,9 +1540,9 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
 
       // Neat 8-sided faceted meadow turf pad over earthy soil base
       const soilGeo = track(new THREE.CylinderGeometry(0.44, 0.5, 0.14, 8));
-      mesh(g, soilGeo, 0x8a5e3f, [0, 0.07, 0], { flat: true, roughness: 0.88 });
+      mesh(g, soilGeo, 0x8a5e3f, [0, 0.07, 0], { roughness: 0.88 });
       const grassGeo = track(new THREE.CylinderGeometry(0.47, 0.45, 0.09, 8));
-      mesh(g, grassGeo, 0x76ad52, [0, 0.17, 0], { flat: true, roughness: 0.86 });
+      mesh(g, grassGeo, 0x76ad52, [0, 0.17, 0], { roughness: 0.86 });
 
       // Graceful curved green main stem + slender companion stem
       const stemColor = 0x3f783b;
@@ -1557,29 +1551,20 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         new THREE.Vector3(-0.04, 0.52, 0),
         new THREE.Vector3(-0.02, 0.86, 0.04),
       ]);
-      mesh(g, track(new THREE.TubeGeometry(mainStemCurve, 8, 0.032, 6, false)), stemColor, [0, 0, 0], {
-        flat: true,
-        roughness: 0.86,
-      });
+      mesh(g, track(new THREE.TubeGeometry(mainStemCurve, 8, 0.032, 6, false)), stemColor, [0, 0, 0], { roughness: 0.86 });
 
       const sideStemCurve = new THREE.CatmullRomCurve3([
         new THREE.Vector3(0.02, 0.2, 0),
         new THREE.Vector3(0.22, 0.44, 0.06),
         new THREE.Vector3(0.36, 0.58, 0.12),
       ]);
-      mesh(g, track(new THREE.TubeGeometry(sideStemCurve, 7, 0.022, 5, false)), stemColor, [0, 0, 0], {
-        flat: true,
-        roughness: 0.86,
-      });
+      mesh(g, track(new THREE.TubeGeometry(sideStemCurve, 7, 0.022, 5, false)), stemColor, [0, 0, 0], { roughness: 0.86 });
 
       // Basal foliage leaves fanning cleanly from the turf
       const leafGeo = makeLowPolyPetalGeo(studio, 0.42, 0.12, 0.026);
       const leafAngles = [-0.95, 0.9, -0.35, 0.45];
       leafAngles.forEach((rz, i) => {
-        const l = mesh(g, leafGeo, i % 2 === 0 ? 0x5c9c48 : 0x4b873d, [0, 0.24, 0.02], {
-          flat: true,
-          roughness: 0.86,
-        });
+        const l = mesh(g, leafGeo, i % 2 === 0 ? 0x5c9c48 : 0x4b873d, [0, 0.24, 0.02], { roughness: 0.86 });
         l.rotation.z = rz;
         l.rotation.x = 0.25 + (i % 2) * 0.18;
       });
@@ -1603,17 +1588,13 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         holder.rotation.z = a;
 
         // Luminous snowy-white outer lily petal cupped forward (+0.28)
-        const pOut = mesh(holder, outerPetalGeo, 0xf7fcff, [0, 0.03, 0], { flat: true, roughness: 0.82 });
+        const pOut = mesh(holder, outerPetalGeo, 0xf7fcff, [0, 0.03, 0], { roughness: 0.82 });
         pOut.rotation.x = 0.28;
         // Vivid cerulean-blue inner heart on each petal
-        const pIn = mesh(holder, innerPetalGeo, 0x34b4f5, [0, 0.03, 0.012], {
-          flat: true,
-          roughness: 0.78,
-          emissive: 0x1a8cd8,
-        });
+        const pIn = mesh(holder, innerPetalGeo, 0x34b4f5, [0, 0.03, 0.012], { roughness: 0.78, emissive: 0x1a8cd8 });
         pIn.rotation.x = 0.28;
         // Pointed green calyx sepal tucked behind the petals
-        const sep = mesh(holder, sepalGeo, 0x3b7338, [0, 0.02, -0.04], { flat: true, roughness: 0.86 });
+        const sep = mesh(holder, sepalGeo, 0x3b7338, [0, 0.02, -0.04], { roughness: 0.86 });
         sep.rotation.z = Math.PI / 5;
         sep.rotation.x = -0.15;
         princess.add(holder);
@@ -1621,11 +1602,11 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
 
       // Iconic central golden-yellow pistil + 5 slender filaments tipped with glowing aqua-cyan beads!
       const pistilGeo = track(new THREE.CylinderGeometry(0.02, 0.022, 0.26, 5));
-      const pistil = mesh(princess, pistilGeo, 0xd4ebd4, [0, 0, 0.12], { flat: true, roughness: 0.84 });
+      const pistil = mesh(princess, pistilGeo, 0xd4ebd4, [0, 0, 0.12], { roughness: 0.84 });
       pistil.rotation.x = Math.PI / 2;
       const tipGeo = track(new THREE.OctahedronGeometry(0.045, 0));
-      mesh(princess, tipGeo, 0xf7cc36, [0, 0.015, 0.26], { flat: true, roughness: 0.8 });
-      mesh(princess, tipGeo, 0xf7cc36, [0.028, -0.01, 0.25], { flat: true, roughness: 0.8 });
+      mesh(princess, tipGeo, 0xf7cc36, [0, 0.015, 0.26], { roughness: 0.8 });
+      mesh(princess, tipGeo, 0xf7cc36, [0.028, -0.01, 0.25], { roughness: 0.8 });
 
       const filGeo = track(new THREE.CylinderGeometry(0.009, 0.011, 0.24, 4));
       const beadGeo = track(new THREE.SphereGeometry(0.032, 6, 5));
@@ -1633,13 +1614,9 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         const a = (i * Math.PI * 2) / 5 + 0.5;
         const fh = new THREE.Group();
         fh.rotation.z = a;
-        const fil = mesh(fh, filGeo, 0xd8f0dc, [0, 0.055, 0.12], { flat: true, roughness: 0.84 });
+        const fil = mesh(fh, filGeo, 0xd8f0dc, [0, 0.055, 0.12], { roughness: 0.84 });
         fil.rotation.x = Math.PI / 2 - 0.36;
-        mesh(fh, beadGeo, 0x4eead2, [0, 0.1, 0.24], {
-          flat: true,
-          roughness: 0.4,
-          emissive: 0x38d9c0,
-        });
+        mesh(fh, beadGeo, 0x4eead2, [0, 0.1, 0.24], { roughness: 0.4, emissive: 0x38d9c0 });
         princess.add(fh);
       }
 
@@ -1656,13 +1633,13 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         const a = (i * Math.PI * 2) / 5 + 0.1;
         const holder = new THREE.Group();
         holder.rotation.z = a;
-        const pOut = mesh(holder, outerPetalGeo, 0xfff5f8, [0, 0.03, 0], { flat: true, roughness: 0.84 });
+        const pOut = mesh(holder, outerPetalGeo, 0xfff5f8, [0, 0.03, 0], { roughness: 0.84 });
         pOut.rotation.x = 0.32;
-        const pIn = mesh(holder, innerPetalGeo, 0xf279b0, [0, 0.03, 0.012], { flat: true, roughness: 0.82 });
+        const pIn = mesh(holder, innerPetalGeo, 0xf279b0, [0, 0.03, 0.012], { roughness: 0.82 });
         pIn.rotation.x = 0.32;
         miniPink.add(holder);
       }
-      mesh(miniPink, tipGeo, 0xf7cc36, [0, 0, 0.09], { flat: true, roughness: 0.82 });
+      mesh(miniPink, tipGeo, 0xf7cc36, [0, 0, 0.09], { roughness: 0.82 });
 
       return g;
     }
@@ -1708,7 +1685,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       acorn.position.set(-0.24, 0.06, 0.04);
       acorn.rotation.z = 0.18;
       g.add(acorn);
-      mesh(acorn, track(new THREE.LatheGeometry(nutPts, 24)), 0xa86135, [0, 0, 0], { roughness: 0.42 });
+      mesh(acorn, track(new THREE.LatheGeometry(nutPts, 24)), 0xa86135, [0, 0, 0], { flat: false, roughness: 0.42 });
 
       // Smooth acorn cap dome + rim + little twig stem
       const capPts = [
@@ -1718,7 +1695,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         new THREE.Vector2(0.22, 0.84),
         new THREE.Vector2(0.0, 0.88),
       ];
-      mesh(acorn, track(new THREE.LatheGeometry(capPts, 24)), 0x5c3a25, [0, 0, 0], { roughness: 0.78 });
+      mesh(acorn, track(new THREE.LatheGeometry(capPts, 24)), 0x5c3a25, [0, 0, 0], { flat: false, roughness: 0.78 });
       smoothCyl(acorn, 0x4c301e, [0.036, 0.18, 0.036], [0, 0.95, 0], 0.8);
 
       // Authentic 5-lobed sculpted maple leaf + slender stem angled cleanly toward camera
@@ -1729,7 +1706,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       leafGroup.rotation.y = 0.42;
       leafGroup.rotation.x = -0.14;
       g.add(leafGroup);
-      mesh(leafGroup, mapleGeo, 0xd96130, [0, 0, 0], { roughness: 0.55 });
+      mesh(leafGroup, mapleGeo, 0xd96130, [0, 0, 0], { flat: false, roughness: 0.55 });
       smoothCyl(leafGroup, 0x8c3f1e, [0.022, 0.28, 0.022], [0, -0.36, 0], 0.75);
 
       return g;
@@ -1793,14 +1770,11 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         cordPts.push(new THREE.Vector3(x * 0.96, y, z * 0.96));
 
         const col = bulbColors[i % bulbColors.length];
-        mesh(g, bulbGeo, col, [x, y, z], { flat: true, roughness: 0.3, emissive: col });
+        mesh(g, bulbGeo, col, [x, y, z], { roughness: 0.3, emissive: col });
       }
 
       const cordCurve = new THREE.CatmullRomCurve3(cordPts);
-      mesh(g, track(new THREE.TubeGeometry(cordCurve, 28, 0.014, 5, false)), 0x26382b, [0, 0, 0], {
-        flat: true,
-        roughness: 0.9,
-      });
+      mesh(g, track(new THREE.TubeGeometry(cordCurve, 28, 0.014, 5, false)), 0x26382b, [0, 0, 0], { roughness: 0.9 });
 
       return g;
     }
@@ -1813,23 +1787,18 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       // tilted slightly upward & right with long arched golden-pollen stamen!)
       const g = new THREE.Group();
 
-      const makeHibiscusPetalGeo = () => {
-        const s = new THREE.Shape();
-        s.moveTo(0, 0);
-        s.lineTo(0.13, 0.16);
-        s.lineTo(0.28, 0.39);
-        s.lineTo(0.22, 0.58);
-        s.lineTo(0.0, 0.65);
-        s.lineTo(-0.22, 0.58);
-        s.lineTo(-0.28, 0.39);
-        s.lineTo(-0.13, 0.16);
-        s.closePath();
-        const geo = new THREE.ExtrudeGeometry(s, { depth: 0.04, bevelEnabled: false });
-        geo.translate(0, 0, -0.02);
-        return track(geo);
-      };
-
-      const petalGeo = makeHibiscusPetalGeo();
+      const s = new THREE.Shape();
+      s.moveTo(0, 0);
+      s.lineTo(0.13, 0.16);
+      s.lineTo(0.28, 0.39);
+      s.lineTo(0.22, 0.58);
+      s.lineTo(0.0, 0.65);
+      s.lineTo(-0.22, 0.58);
+      s.lineTo(-0.28, 0.39);
+      s.lineTo(-0.13, 0.16);
+      s.closePath();
+      const petalGeo = track(new THREE.ExtrudeGeometry(s, { depth: 0.04, bevelEnabled: false }));
+      petalGeo.translate(0, 0, -0.02);
       const leafGeo = makeLowPolyPetalGeo(studio, 0.62, 0.22, 0.032);
 
       // Blossom head tilted clearly UPWARD (-0.56 X in YXZ order) and gently to the right (+0.96 Y)
@@ -1842,16 +1811,16 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       g.add(head);
 
       // Two rich tropical leaves poking cleanly out from BOTH bottom-left and bottom-right sides!
-      const lLeft = mesh(head, leafGeo, 0x3e7841, [-0.18, -0.18, -0.09], { flat: true, roughness: 0.86 });
+      const lLeft = mesh(head, leafGeo, 0x3e7841, [-0.18, -0.18, -0.09], { roughness: 0.86 });
       lLeft.rotation.z = 2.18;
       lLeft.rotation.x = -0.1;
-      const lRight = mesh(head, leafGeo, 0x4f9151, [0.24, -0.22, -0.08], { flat: true, roughness: 0.86 });
+      const lRight = mesh(head, leafGeo, 0x4f9151, [0.24, -0.22, -0.08], { roughness: 0.86 });
       lRight.rotation.z = -2.32;
       lRight.rotation.x = -0.06;
 
       // Green calyx cup tucked neatly behind the bloom
       const calyxGeo = track(new THREE.ConeGeometry(0.19, 0.18, 6));
-      const calyx = mesh(head, calyxGeo, 0x4b8749, [0, 0, -0.1], { flat: true, roughness: 0.86 });
+      const calyx = mesh(head, calyxGeo, 0x4b8749, [0, 0, -0.1], { roughness: 0.86 });
       calyx.rotation.x = -Math.PI / 2;
 
       // 5 broad, slightly larger coral-red petals cupped FORWARD (+rotation.x)
@@ -1859,10 +1828,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         const a = (i * Math.PI * 2) / 5 + 0.18;
         const holder = new THREE.Group();
         holder.rotation.z = a;
-        const petal = mesh(holder, petalGeo, i % 2 === 0 ? 0xe64962 : 0xd63a54, [0, 0.04, 0], {
-          flat: true,
-          roughness: 0.84,
-        });
+        const petal = mesh(holder, petalGeo, i % 2 === 0 ? 0xe64962 : 0xd63a54, [0, 0.04, 0], { roughness: 0.84 });
         petal.rotation.x = 0.28;
         petal.rotation.y = 0.08;
         head.add(holder);
@@ -1870,7 +1836,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
 
       // Deep crimson throat disc
       const throatGeo = track(new THREE.CylinderGeometry(0.17, 0.15, 0.06, 7));
-      const throat = mesh(head, throatGeo, 0x991c37, [0, 0, 0.03], { flat: true, roughness: 0.85 });
+      const throat = mesh(head, throatGeo, 0x991c37, [0, 0, 0.03], { roughness: 0.85 });
       throat.rotation.x = Math.PI / 2;
 
       // Long gracefully arched hibiscus stamen column sweeping out & upward
@@ -1881,7 +1847,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         new THREE.Vector3(0.05, 0.24, 0.82),
       ]);
       const stamenGeo = track(new THREE.TubeGeometry(stamenCurve, 8, 0.032, 6, false));
-      mesh(head, stamenGeo, 0xf29aa6, [0, 0, 0], { flat: true, roughness: 0.84 });
+      mesh(head, stamenGeo, 0xf29aa6, [0, 0, 0], { roughness: 0.84 });
 
       // Golden pollen cluster along the upper stamen + crimson stigma tip
       const pollenGeo = track(new THREE.SphereGeometry(0.048, 6, 5));
@@ -1894,11 +1860,11 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
           pollenGeo,
           0xf7d046,
           [pt.x + Math.cos(a) * 0.07, pt.y + Math.sin(a) * 0.07, pt.z],
-          { flat: true, roughness: 0.84 },
+          { roughness: 0.84 },
         );
       }
       const tipPt = stamenCurve.getPoint(1);
-      mesh(head, pollenGeo, 0xc72242, [tipPt.x, tipPt.y, tipPt.z], { flat: true, roughness: 0.84 });
+      mesh(head, pollenGeo, 0xc72242, [tipPt.x, tipPt.y, tipPt.z], { roughness: 0.84 });
 
       return g;
     }
@@ -1907,12 +1873,12 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       // Cute sunflower rendered in crisp matte flat-shaded low-poly!
       const g = new THREE.Group();
       const stemGeo = track(new THREE.CylinderGeometry(0.055, 0.055, 0.6, 6));
-      mesh(g, stemGeo, 0x528543, [0, 0.28, 0], { flat: true, roughness: 0.86 });
+      mesh(g, stemGeo, 0x528543, [0, 0.28, 0], { roughness: 0.86 });
 
       const leafGeo = makeLowPolyPetalGeo(studio, 0.36, 0.15, 0.034);
-      const l1 = mesh(g, leafGeo, 0x649952, [0.03, 0.22, 0], { flat: true, roughness: 0.86 });
+      const l1 = mesh(g, leafGeo, 0x649952, [0.03, 0.22, 0], { roughness: 0.86 });
       l1.rotation.z = -0.9;
-      const l2 = mesh(g, leafGeo, 0x568a47, [-0.03, 0.16, 0], { flat: true, roughness: 0.86 });
+      const l2 = mesh(g, leafGeo, 0x568a47, [-0.03, 0.16, 0], { roughness: 0.86 });
       l2.rotation.z = 0.95;
 
       const head = new THREE.Group();
@@ -1923,7 +1889,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
 
       // Faceted low-poly cocoa seed disc
       const centerGeo = track(new THREE.CylinderGeometry(0.21, 0.23, 0.1, 8));
-      const center = mesh(head, centerGeo, 0x4d3424, [0, 0, 0.03], { flat: true, roughness: 0.88 });
+      const center = mesh(head, centerGeo, 0x4d3424, [0, 0, 0.03], { roughness: 0.88 });
       center.rotation.x = Math.PI / 2;
 
       // Double layered ring of 12 crisp angular low-poly golden petals
@@ -1932,13 +1898,13 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         const a = (i * Math.PI * 2) / 12;
         const h1 = new THREE.Group();
         h1.rotation.z = a;
-        const p1 = mesh(h1, petalGeo, 0xf5be32, [0, 0.17, 0.015], { flat: true, roughness: 0.85 });
+        const p1 = mesh(h1, petalGeo, 0xf5be32, [0, 0.17, 0.015], { roughness: 0.85 });
         p1.rotation.x = -0.12;
         head.add(h1);
 
         const h2 = new THREE.Group();
         h2.rotation.z = a + Math.PI / 12;
-        const p2 = mesh(h2, petalGeo, 0xdf9b22, [0, 0.15, -0.025], { flat: true, roughness: 0.85 });
+        const p2 = mesh(h2, petalGeo, 0xdf9b22, [0, 0.15, -0.025], { roughness: 0.85 });
         p2.rotation.x = -0.2;
         head.add(h2);
       }
@@ -1963,7 +1929,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         const holder = new THREE.Group();
         holder.position.set(0, 0.02, 0);
         holder.rotation.y = lc.a;
-        const leaf = mesh(holder, leafGeo, lc.color, [0, 0, 0.03], { flat: true, roughness: 0.86 });
+        const leaf = mesh(holder, leafGeo, lc.color, [0, 0, 0.03], { roughness: 0.86 });
         leaf.scale.setScalar(lc.s);
         leaf.rotation.x = lc.tilt;
         g.add(holder);
@@ -1993,14 +1959,14 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
           new THREE.Vector3(al.top[0], al.top[1] - al.radius * 0.6, al.top[2]),
         ]);
         const stalkGeo = track(new THREE.TubeGeometry(stalkCurve, 7, 0.022, 5, false));
-        mesh(g, stalkGeo, 0x59914d, [0, 0, 0], { flat: true, roughness: 0.86 });
+        mesh(g, stalkGeo, 0x59914d, [0, 0, 0], { roughness: 0.86 });
 
         // Faceted spherical allium umbel head studded with crisp tiny floret starlets
         const orb = new THREE.Group();
         orb.position.set(...al.top);
         g.add(orb);
 
-        const core = mesh(orb, coreGeo, al.coreColor, [0, 0, 0], { flat: true, roughness: 0.86 });
+        const core = mesh(orb, coreGeo, al.coreColor, [0, 0, 0], { roughness: 0.86 });
         core.scale.setScalar(al.radius);
 
         // Fibonacci-sphere distribution of 14 crisp little low-poly florets around each allium head
@@ -2018,7 +1984,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
             floretGeo,
             i % 3 === 0 ? al.accentColor : al.floretColor,
             [nx * dist, y * dist, nz * dist],
-            { flat: true, roughness: 0.84 },
+            { roughness: 0.84 },
           );
           const fScale = al.radius * (i % 2 === 0 ? 0.27 : 0.22);
           fl.scale.setScalar(fScale);
@@ -2029,29 +1995,24 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       return g;
     }
 
-    case 'bloom-forget-me-not':
-    default: {
+    case 'bloom-forget-me-not': {
       // Tight lush bouquet dome of 7 big sky-blue 5-petal Forget-Me-Not blooms on V-forking
       // dark-olive stems with pointed framing leaves (directly matching the reference photo!)
       const g = new THREE.Group();
 
       // Broad rounded low-poly Forget-Me-Not petal
-      const makeFmnPetalGeo = () => {
-        const s = new THREE.Shape();
-        s.moveTo(0, 0);
-        s.lineTo(0.085, 0.06);
-        s.lineTo(0.135, 0.15);
-        s.lineTo(0.085, 0.24);
-        s.lineTo(0, 0.26);
-        s.lineTo(-0.085, 0.24);
-        s.lineTo(-0.135, 0.15);
-        s.lineTo(-0.085, 0.06);
-        s.closePath();
-        const geo = new THREE.ExtrudeGeometry(s, { depth: 0.026, bevelEnabled: false });
-        geo.translate(0, 0, -0.013);
-        return track(geo);
-      };
-      const petalGeo = makeFmnPetalGeo();
+      const s = new THREE.Shape();
+      s.moveTo(0, 0);
+      s.lineTo(0.085, 0.06);
+      s.lineTo(0.135, 0.15);
+      s.lineTo(0.085, 0.24);
+      s.lineTo(0, 0.26);
+      s.lineTo(-0.085, 0.24);
+      s.lineTo(-0.135, 0.15);
+      s.lineTo(-0.085, 0.06);
+      s.closePath();
+      const petalGeo = track(new THREE.ExtrudeGeometry(s, { depth: 0.026, bevelEnabled: false }));
+      petalGeo.translate(0, 0, -0.013);
       const whiteRayGeo = makeLowPolyPetalGeo(studio, 0.115, 0.032, 0.02);
       const yellowRingGeo = track(new THREE.CylinderGeometry(0.068, 0.068, 0.036, 7));
       const darkEyeGeo = track(new THREE.CylinderGeometry(0.028, 0.028, 0.044, 6));
@@ -2073,10 +2034,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
           ]),
       );
       for (const curve of forkCurves) {
-        mesh(g, track(new THREE.TubeGeometry(curve, 6, 0.026, 5, false)), stemColor, [0, 0, 0], {
-          flat: true,
-          roughness: 0.88,
-        });
+        mesh(g, track(new THREE.TubeGeometry(curve, 6, 0.026, 5, false)), stemColor, [0, 0, 0], { roughness: 0.88 });
       }
 
       // Framing leaves sprout from the fork stems: each leaf's narrow base is pinned to a stem point
@@ -2087,7 +2045,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       ];
       for (const l of leaves) {
         const { x, y, z } = forkCurves[l.fork].getPoint(l.t);
-        const leaf = mesh(g, leafGeo, l.color, [x, y, z], { flat: true, roughness: 0.86 });
+        const leaf = mesh(g, leafGeo, l.color, [x, y, z], { roughness: 0.86 });
         leaf.scale.set(l.scale[0], l.scale[1], 1);
         leaf.rotation.z = l.rotZ;
         leaf.rotation.y = l.rotY;
@@ -2101,18 +2059,18 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
         for (let i = 0; i < 5; i++) {
           const h = new THREE.Group();
           h.rotation.z = (i * Math.PI * 2) / 5 + 0.15;
-          const p = mesh(h, petalGeo, blueHex, [0, 0.02, 0], { flat: true, roughness: 0.84 });
+          const p = mesh(h, petalGeo, blueHex, [0, 0.02, 0], { roughness: 0.84 });
           p.rotation.x = 0.12;
           // Crisp iconic white throat star rays between/at the base of the petals!
-          const wRay = mesh(h, whiteRayGeo, 0xfcfbf6, [0, 0.01, 0.018], { flat: true, roughness: 0.84 });
+          const wRay = mesh(h, whiteRayGeo, 0xfcfbf6, [0, 0.01, 0.018], { roughness: 0.84 });
           wRay.rotation.x = 0.12;
           b.add(h);
         }
 
         // Sunny golden-yellow eye + tiny dark center dot
-        const yRing = mesh(b, yellowRingGeo, 0xf7cf36, [0, 0, 0.026], { flat: true, roughness: 0.84 });
+        const yRing = mesh(b, yellowRingGeo, 0xf7cf36, [0, 0, 0.026], { roughness: 0.84 });
         yRing.rotation.x = Math.PI / 2;
-        const dEye = mesh(b, darkEyeGeo, 0x6b4e16, [0, 0, 0.032], { flat: true, roughness: 0.85 });
+        const dEye = mesh(b, darkEyeGeo, 0x6b4e16, [0, 0, 0.032], { roughness: 0.85 });
         dEye.rotation.x = Math.PI / 2;
         return b;
       };
@@ -2134,10 +2092,7 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
           new THREE.Vector3(c.pos[0] * 0.55, (0.18 + c.pos[1]) * 0.5, c.pos[2] * 0.45),
           new THREE.Vector3(c.pos[0], c.pos[1] - 0.04, c.pos[2] - 0.04),
         ]);
-        mesh(g, track(new THREE.TubeGeometry(branchCurve, 6, 0.022, 5, false)), stemColor, [0, 0, 0], {
-          flat: true,
-          roughness: 0.88,
-        });
+        mesh(g, track(new THREE.TubeGeometry(branchCurve, 6, 0.022, 5, false)), stemColor, [0, 0, 0], { roughness: 0.88 });
 
         const fl = makeBlossom(c.scale, c.blue);
         fl.position.set(...c.pos);

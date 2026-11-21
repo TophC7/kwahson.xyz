@@ -1,3 +1,5 @@
+import { shuffle } from '../../lib/rng';
+
 export type LayoutKey = 'regular' | 'medium' | 'mega';
 export type GameMode = 'friend' | 'computer';
 export type Player = 0 | 1;
@@ -22,7 +24,6 @@ export interface Region {
 
 export interface Board {
   w: number;
-  h: number;
   regions: Region[];
   borderPath: string;
 }
@@ -32,19 +33,6 @@ export const BOARD_SIZES: Record<LayoutKey, BoardSizeSpec> = {
   medium: { w: 8, count: 30, maxArea: 10, label: 'Med' },
   mega: { w: 12, count: 77, maxArea: 12, label: 'Huge' },
 };
-
-function slicePath(index: number, cap: number, radius = 0.3): string {
-  const a = -Math.PI / 2 + (index * 2 * Math.PI) / cap;
-  const b = a + (2 * Math.PI) / cap;
-  return `M0 0 L${radius * Math.cos(a)} ${radius * Math.sin(a)} A${radius} ${radius} 0 0 1 ${radius * Math.cos(b)} ${radius * Math.sin(b)} Z`;
-}
-
-export const SLICE_PATHS: Record<number, readonly string[]> = Object.fromEntries(
-  Array.from({ length: 8 }, (_, i) => {
-    const cap = i + 2;
-    return [cap, Array.from({ length: cap }, (_, s) => slicePath(s, cap, 0.3))];
-  }),
-);
 
 function hasHole(cells: [number, number][]): boolean {
   const occupied = new Set(cells.map(([x, y]) => `${x},${y}`));
@@ -75,23 +63,11 @@ function hasHole(cells: [number, number][]): boolean {
   return seen.size + occupied.size !== (right - left + 1) * (bottom - top + 1);
 }
 
-function shuffled<T>(values: T[], rng: () => number): T[] {
-  for (let i = values.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [values[i], values[j]] = [values[j], values[i]];
-  }
-  return values;
-}
-
-function generateIds(size: BoardSizeSpec, rng: () => number): number[] {
+function generateIds(size: BoardSizeSpec): number[] {
   const { w, count, maxArea } = size;
-  if (!Number.isInteger(w) || w < 2) {
-    throw new Error('Invalid board width.');
-  }
-  const h = w;
 
   for (let attempt = 0; attempt < 40; attempt++) {
-    let ids = Array.from({ length: w * h }, (_, i) => i);
+    let ids = Array.from({ length: w * w }, (_, i) => i);
     let remaining = ids.length;
 
     while (remaining > count) {
@@ -122,7 +98,7 @@ function generateIds(size: BoardSizeSpec, rng: () => number): number[] {
           addNeighbor(id, ids[i + 1]);
           addNeighbor(ids[i + 1], id);
         }
-        if (y + 1 < h && ids[i + w] !== id) {
+        if (y + 1 < w && ids[i + w] !== id) {
           addNeighbor(id, ids[i + w]);
           addNeighbor(ids[i + w], id);
         }
@@ -136,7 +112,7 @@ function generateIds(size: BoardSizeSpec, rng: () => number): number[] {
       }
 
       let merged = false;
-      for (const [a, b] of shuffled(edges, rng)) {
+      for (const [a, b] of shuffle(edges, Math.random)) {
         const cells = [...groups.get(a)!, ...groups.get(b)!];
         if (cells.length > maxArea) continue;
         const affected = new Set([...neighbors.get(a)!, ...neighbors.get(b)!]);
@@ -170,10 +146,9 @@ function generateIds(size: BoardSizeSpec, rng: () => number): number[] {
   throw new Error('Could not generate a valid board. Please try New game again.');
 }
 
-export function createBoard(size: BoardSizeSpec, rng: () => number = Math.random): Board {
-  const ids = generateIds(size, rng);
+export function createBoard(size: BoardSizeSpec): Board {
+  const ids = generateIds(size);
   const w = size.w;
-  const h = ids.length / w;
   const cellsByRegion: [number, number][][] = Array.from({ length: size.count }, () => []);
   const regions: Region[] = Array.from({ length: size.count }, (_, id) => ({
     id,
@@ -201,7 +176,7 @@ export function createBoard(size: BoardSizeSpec, rng: () => number = Math.random
       if (!r.neighbors.includes(other.id)) r.neighbors.push(other.id);
       if (!other.neighbors.includes(id)) other.neighbors.push(id);
     }
-    if (y + 1 < h && ids[i + w] !== id) {
+    if (y + 1 < w && ids[i + w] !== id) {
       borderPath += `M${x} ${y + 1}h1`;
       const other = regions[ids[i + w]];
       if (!r.neighbors.includes(other.id)) r.neighbors.push(other.id);
@@ -232,7 +207,11 @@ export function createBoard(size: BoardSizeSpec, rng: () => number = Math.random
     r.y = anchor[1] + 0.5;
   }
 
-  return { w, h, regions, borderPath };
+  return { w, regions, borderPath };
+}
+
+export function canPlay(r: Region, player: Player): boolean {
+  return r.owner === null || r.owner === player;
 }
 
 export function ownsAll(state: Region[], player: Player): boolean {
@@ -270,7 +249,7 @@ export function* playMove(state: Region[], id: number, player: Player): Generato
 }
 
 export function chooseComputerMove(regions: Region[]): number | null {
-  const options = regions.filter((r) => r.owner === null || r.owner === 1);
+  const options = regions.filter((r) => canPlay(r, 1));
   if (!options.length) return null;
 
   let bestId = options[0].id;

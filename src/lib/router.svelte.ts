@@ -38,19 +38,15 @@ class Router {
       if (next === this.pathname && url.hash) return;
 
       event.preventDefault();
-      this.navigate(next);
+      if (next !== this.pathname) {
+        history.pushState({}, '', next);
+        this.pathname = next;
+      }
     });
   }
 
   get slug(): string | null {
     return this.pathname === '/' ? null : this.pathname.slice(1);
-  }
-
-  navigate(to: string) {
-    const next = normalizePath(to);
-    if (next === this.pathname) return;
-    window.history.pushState({}, '', next);
-    this.pathname = next;
   }
 }
 

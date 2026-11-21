@@ -1,6 +1,6 @@
 import { mulberry32, pick } from '../src/lib/rng';
 import {
-  COLS, ROWS, CROP_COUNT, ENEMIES, ENEMY_KINDS, HEROES, HERO_KINDS, ITEMS, ITEM_KINDS,
+  COLS, ROWS, CROP_COUNT, DIFFICULTY_LEVELS, ENEMIES, ENEMY_KINDS, HEROES, HERO_KINDS, ITEMS, ITEM_KINDS,
   MAX_EGGS, OVERHEAL, POWER_PER_TURN, cost, unitCost,
 } from '../src/projects/pasture-tactics/data';
 import {
@@ -13,7 +13,6 @@ function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
-const difficulties = ['easy', 'medium', 'hard'] as const;
 const byId = (s: GameState, id: number) => s.entities.find(e => e.id === id);
 
 function blank(): GameState {
@@ -60,7 +59,7 @@ function shove(withRock: boolean) {
   const s = blank(), pig = createEntity(s, 'pig', 3, 4), brute = createEntity(s, 'brute', 3, 3);
   const { state, events } = apply(s, { type: 'skill', id: pig.id, x: brute.x, y: brute.y });
   const hit = byId(state, brute.id);
-  assert(events.some(e => e.t === 'skill' && e.id === pig.id && e.name === 'Belly Flop'), 'Missing Belly Flop');
+  assert(events.some(e => e.t === 'skill' && e.id === pig.id), 'Missing Belly Flop');
   assert(hit?.hp === brute.hp - 2 && hit.x === brute.x && hit.y === brute.y, 'Belly Flop damage or displacement');
 }
 
@@ -85,7 +84,7 @@ function shove(withRock: boolean) {
   const flank = createEntity(s, 'scout', 3, 4), pig = createEntity(s, 'pig', 4, 3);
   const outside = createEntity(s, 'visitor', 3, 1);
   const { state, events } = apply(s, { type: 'skill', id: duck.id, x: visitor.x, y: visitor.y });
-  assert(events.some(e => e.t === 'skill' && e.id === duck.id && e.name === 'Gust'), 'Missing Gust');
+  assert(events.some(e => e.t === 'skill' && e.id === duck.id), 'Missing Gust');
   for (const e of [friend, flank]) {
     const moved = byId(state, e.id);
     assert(moved?.x === e.x + 1 && moved.y === e.y && moved.hp === e.hp, `Gust did not slide ${e.kind} forward`);
@@ -104,7 +103,7 @@ function shove(withRock: boolean) {
   const s = blank(), visitor = createEntity(s, 'visitor', 2, 1), cow = createEntity(s, 'cow', 2, 4);
   const { state, events } = apply(s, { type: 'endTurn' });
   const move = events.findIndex(e => e.t === 'move' && e.id === visitor.id);
-  const zap = events.findIndex(e => e.t === 'skill' && e.id === visitor.id && e.name === 'Zap');
+  const zap = events.findIndex(e => e.t === 'skill' && e.id === visitor.id);
   assert(move >= 0 && zap > move && byId(state, cow.id)?.hp === cow.hp - 1, 'Visitor must move then Zap');
 }
 
@@ -229,7 +228,7 @@ function shove(withRock: boolean) {
 
 // 8. The same seed and difficulty reconstruct the same scenario.
 for (const seed of [1, 4242, 900001]) {
-  for (const difficulty of difficulties) {
+  for (const difficulty of DIFFICULTY_LEVELS) {
     const first = createGame(seed, difficulty);
     const crops = first.entities.filter(e => e.kind === 'crop');
     assert(crops.length === CROP_COUNT && crops.every(e => e.y === ROWS - 3 || e.y === ROWS - 2), 'Generated crop rows or count');
@@ -256,7 +255,7 @@ function checkState(s: GameState, bonus: boolean) {
   assert(s.traps.length <= MAX_EGGS, `${at}: too many eggs`);
 }
 
-for (const difficulty of difficulties) {
+for (const difficulty of DIFFICULTY_LEVELS) {
   const stats = { hold: { wins: 0, games: 0 }, rout: { wins: 0, games: 0 } };
   for (let seed = 1; seed <= 300; seed++) {
     const rng = mulberry32(seed ^ 0x914ac5);

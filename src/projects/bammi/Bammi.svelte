@@ -1,10 +1,33 @@
+<script module lang="ts">
+  const PIE_DY = 0.045;
+  const RULES = [
+    ['Claim', 'Tap an empty region or your own pie to add a slice.'],
+    ['Burst', 'Pies hold 1 slice per neighbor. One extra explodes and captures them.'],
+    ['Win', 'Chains resolve automatically. Take every region to win.'],
+  ] as const;
+
+  function slicePath(index: number, cap: number): string {
+    const radius = 0.3;
+    const a = -Math.PI / 2 + (index * 2 * Math.PI) / cap;
+    const b = a + (2 * Math.PI) / cap;
+    return `M0 0 L${radius * Math.cos(a)} ${radius * Math.sin(a)} A${radius} ${radius} 0 0 1 ${radius * Math.cos(b)} ${radius * Math.sin(b)} Z`;
+  }
+
+  const SLICE_PATHS: Record<number, readonly string[]> = Object.fromEntries(
+    Array.from({ length: 8 }, (_, i) => {
+      const cap = i + 2;
+      return [cap, Array.from({ length: cap }, (_, s) => slicePath(s, cap))];
+    }),
+  );
+</script>
+
 <script lang="ts">
   import { RefreshIcon } from '@hugeicons/core-free-icons';
   import FieldBackground from '../../components/FieldBackground.svelte';
   import Icon from '../../components/Icon.svelte';
   import {
     BOARD_SIZES,
-    SLICE_PATHS,
+    canPlay,
     chooseComputerMove,
     createBoard,
     ownsAll,
@@ -73,9 +96,8 @@
   let speed = $state<SpeedMs>(280);
   let reducedMotion = $state(false);
 
-  let boardSize = $state({ w: 8, h: 8 });
-  let regions = $state<Region[]>([]);
-  let borderPath = $state('');
+  let board = $state<Board | null>(null);
+  const regions = $derived(board?.regions ?? []);
   let turn = $state<Player>(0);
   let winner = $state<Player | null>(null);
   let busy = $state(false);
@@ -93,36 +115,23 @@
   let cancelBurst: (() => void) | null = null;
 
   const effectiveSpeed = $derived<SpeedMs>(reducedMotion ? 0 : speed);
+  const computerTurn = $derived(gameMode === 'computer' && turn === 1);
 
   const legalIds = $derived.by(() => {
-    if (busy || winner !== null || (gameMode === 'computer' && turn === 1)) {
-      return new Set<number>();
-    }
-    return new Set(
-      regions.filter((r) => r.owner === null || r.owner === turn).map((r) => r.id),
-    );
+    if (busy || winner !== null || computerTurn) return new Set<number>();
+    return new Set(regions.filter((r) => canPlay(r, turn)).map((r) => r.id));
   });
 
-  const blueCount = $derived(regions.filter((r) => r.owner === 0).length);
-  const redCount = $derived(regions.filter((r) => r.owner === 1).length);
-  const playerCounts = $derived<[number, number]>([blueCount, redCount]);
+  const playerCounts = $derived([0, 1].map((p) => regions.filter((r) => r.owner === p).length));
 
   const statusText = $derived(
     winner === null
-      ? `${PLAYERS[turn].name}${busy ? ' · resolving...' : gameMode === 'computer' && turn === 1 ? ' · thinking...' : "'s turn"}`
+      ? `${PLAYERS[turn].name}${busy ? ' · resolving...' : computerTurn ? ' · thinking...' : "'s turn"}`
       : `${PLAYERS[winner].name} wins!`,
   );
 
-  const showKeyboardFocus = $derived(
-    keyboardMode &&
-      !busy &&
-      winner === null &&
-      focusedRegionId !== null &&
-      legalIds.has(focusedRegionId),
-  );
-
   const focusedRegion = $derived(
-    showKeyboardFocus && focusedRegionId !== null ? regions[focusedRegionId] ?? null : null,
+    keyboardMode && focusedRegionId !== null && legalIds.has(focusedRegionId) ? regions[focusedRegionId] : null,
   );
 
   function sleep(ms: number) {
@@ -137,10 +146,9 @@
     cancelBurst?.();
   }
 
-  function newGame(layoutKey: LayoutKey = gameLayout, modeValue: GameMode = gameMode) {
-    let next: Board;
+  function newGame(layoutKey: LayoutKey, modeValue: GameMode) {
     try {
-      next = createBoard(BOARD_SIZES[layoutKey]);
+      board = createBoard(BOARD_SIZES[layoutKey]);
     } catch (err) {
       message = err instanceof Error ? err.message : 'Could not generate a valid board.';
       return;
@@ -148,9 +156,6 @@
 
     generation++;
     clearPendingTimers();
-    boardSize = { w: next.w, h: next.h };
-    regions = next.regions;
-    borderPath = next.borderPath;
     turn = 0;
     winner = null;
     busy = false;
@@ -168,9 +173,8 @@
     duration: number,
     token: number,
   ): Promise<void> {
-    if (!duration || reducedMotion) return Promise.resolve();
     const x = source.x;
-    const y = source.y - 0.045;
+    const y = source.y - PIE_DY;
     let sparksPath = '';
     for (let i = 0; i < 8; i++) {
       const angle = (i * Math.PI) / 4;
@@ -180,7 +184,7 @@
     }
     const targets = source.neighbors.map((id) => ({
       dx: regions[id].x - x,
-      dy: regions[id].y - 0.045 - y,
+      dy: regions[id].y - PIE_DY - y,
     }));
 
     return new Promise((resolve) => {
@@ -224,12 +228,7 @@
   }
 
   function focusVisibleRestartButton() {
-    const btn = Boolean(desktopRestartBtnEl?.offsetParent)
-      ? desktopRestartBtnEl
-      : Boolean(mobileRestartBtnEl?.offsetParent)
-        ? mobileRestartBtnEl
-        : null;
-    btn?.focus({ preventScroll: true });
+    [desktopRestartBtnEl, mobileRestartBtnEl].find((b) => b?.offsetParent)?.focus({ preventScroll: true });
   }
 
   function handleRegionKey(event: KeyboardEvent, from: Region) {
@@ -272,7 +271,7 @@
   }
 
   function scheduleComputer() {
-    if (gameMode !== 'computer' || turn !== 1 || winner !== null) return;
+    if (!computerTurn || winner !== null) return;
     const token = generation;
     message = 'Cherry is choosing a pie...';
     computerTimer = setTimeout(async () => {
@@ -284,9 +283,7 @@
   }
 
   async function play(id: number, asComputer = false) {
-    const r = regions[id];
-    if (!r || busy || winner !== null || (r.owner !== null && r.owner !== turn)) return;
-    if (gameMode === 'computer' && turn === 1 && !asComputer) return;
+    if (!asComputer && !legalIds.has(id)) return;
 
     const token = generation;
     const player = turn;
@@ -308,7 +305,6 @@
       if (token !== generation) return;
     }
 
-    if (token !== generation) return;
     winner = ownsAll(regions, player) ? player : null;
     if (winner === null) turn = player === 0 ? 1 : 0;
     busy = false;
@@ -346,16 +342,6 @@
       restartDialogEl.returnValue = 'cancel';
       restartDialogEl.showModal();
     }
-  }
-
-  function selectLayout(nextLayout: LayoutKey) {
-    if (nextLayout === gameLayout) return;
-    requestNewGame(nextLayout, gameMode);
-  }
-
-  function selectMode(nextMode: GameMode) {
-    if (nextMode === gameMode) return;
-    requestNewGame(gameLayout, nextMode);
   }
 
   function handleDialogClose() {
@@ -415,7 +401,7 @@
 )}
   <div class="flex items-center justify-between gap-2" role="group" aria-label={ariaLabel}>
     <span class="font-mono text-[10px] tracking-wider text-ink-dim uppercase">{label}</span>
-    <div class="inline-flex rounded-sm border border-[rgba(213,215,207,0.1)] bg-canvas p-0.5">
+    <div class="inline-flex rounded-sm border border-ink/10 bg-canvas p-0.5">
       {#each items as opt}
         <button
           type="button"
@@ -423,7 +409,7 @@
           title={opt.title}
           aria-pressed={selected === opt.value}
           onclick={() => onSelect(opt.value)}
-          class="bammi-control rounded-[3px] {padClass} py-1 font-mono text-[11px] transition-colors {selected === opt.value
+          class="focus-ring rounded-[3px] {padClass} py-1 font-mono text-[11px] transition-colors {selected === opt.value
             ? 'bg-surface-raised text-ink'
             : opt.disabled
               ? 'cursor-not-allowed text-ink-dim/40'
@@ -436,6 +422,18 @@
   </div>
 {/snippet}
 
+{#snippet status(cls: string)}
+  <div
+    role="status"
+    aria-live="polite"
+    aria-atomic="true"
+    class="{cls} font-semibold tracking-tight"
+    style="color: {PLAYERS[winner ?? turn].bright};"
+  >
+    {statusText}
+  </div>
+{/snippet}
+
 <div class="relative min-h-full bg-canvas text-ink lg:h-full lg:overflow-hidden">
   <FieldBackground />
 
@@ -445,18 +443,10 @@
   >
     <!-- Mobile compact status header (above board on small screens; desktop shows this in the right rail) -->
     <div
-      class="flex items-center justify-between gap-2 rounded-md border border-[rgba(213,215,207,0.1)] bg-surface px-3 py-2 lg:hidden"
+      class="flex items-center justify-between gap-2 rounded-md border border-ink/10 bg-surface px-3 py-2 lg:hidden"
     >
       <div class="min-w-0">
-        <div
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-          class="text-sm font-semibold tracking-tight"
-          style="color: {PLAYERS[winner ?? turn].bright};"
-        >
-          {statusText}
-        </div>
+        {@render status('text-sm')}
         <p class="m-0 truncate text-[11px] text-ink-muted">{message}</p>
       </div>
 
@@ -475,8 +465,8 @@
           type="button"
           title="New game"
           aria-label="New game"
-          onclick={() => requestNewGame(gameLayout, gameMode)}
-          class="bammi-control inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-sm border border-sage/45 bg-sage/18 text-ink"
+          onclick={() => requestNewGame()}
+          class="focus-ring inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-sm border border-sage/45 bg-sage/18 text-ink"
         >
           <Icon icon={RefreshIcon} size={13} strokeWidth={1.9} />
         </button>
@@ -486,13 +476,13 @@
     <!-- Primary Board Stage: container-query square auto-fits both width and height cleanly in Firefox & Chromium -->
     <div class="bammi-stage-wrap flex min-h-0 min-w-0 flex-1 items-center justify-center lg:h-full lg:self-stretch">
       <div
-        class="bammi-stage relative overflow-hidden rounded-md border border-[rgba(213,215,207,0.16)] bg-[#151714] shadow-[0_24px_60px_-32px_rgba(0,0,0,0.9)]"
+        class="bammi-stage relative overflow-hidden rounded-md border border-ink/16 bg-[#151714] shadow-[0_24px_60px_-32px_rgba(0,0,0,0.9)]"
       >
-        {#if regions.length > 0}
+        {#if board}
           <svg
             bind:this={boardEl}
             class="bammi-board"
-            viewBox="0 0 {boardSize.w} {boardSize.h}"
+            viewBox="0 0 {board.w} {board.w}"
             role="group"
             aria-label="Bammi board"
             aria-describedby="bammi-rules-summary"
@@ -500,17 +490,17 @@
           >
             <!-- Regions -->
             {#each regions as r (r.id)}
-              {@const canPlay = legalIds.has(r.id)}
+              {@const legal = legalIds.has(r.id)}
               <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
               <path
                 d={r.path}
                 fill={r.owner === null ? '#161815' : PLAYERS[r.owner].tint}
                 class="bammi-region"
-                class:legal={canPlay}
+                class:legal
                 role="button"
-                tabindex={canPlay && r.id === activeRegion ? 0 : -1}
+                tabindex={legal && r.id === activeRegion ? 0 : -1}
                 data-region={r.id}
-                aria-disabled={!canPlay}
+                aria-disabled={!legal}
                 aria-label="Region {r.id + 1}, {r.owner === null
                   ? 'unclaimed'
                   : `${PLAYERS[r.owner].flavor}, ${PLAYERS[r.owner].short}`}, {r.count} of {r.cap} slices{r.count === r.cap
@@ -519,7 +509,7 @@
                 onclick={() => play(r.id)}
                 onkeydown={(e) => handleRegionKey(e, r)}
                 onfocus={() => {
-                  if (canPlay) {
+                  if (legal) {
                     activeRegion = r.id;
                     focusedRegionId = r.id;
                   }
@@ -531,11 +521,11 @@
             {/each}
 
             <!-- Crisp borders -->
-            <path d={borderPath} class="bammi-border" aria-hidden="true" />
+            <path d={board.borderPath} class="bammi-border" aria-hidden="true" />
 
             <!-- Pies -->
             {#each regions as r (r.id)}
-              <g transform="translate({r.x} {r.y - 0.045})" aria-hidden="true" pointer-events="none">
+              <g transform="translate({r.x} {r.y - PIE_DY})" aria-hidden="true" pointer-events="none">
                 {#each SLICE_PATHS[r.cap] as d, s}
                   <path
                     {d}
@@ -582,28 +572,19 @@
             <!-- Keyboard focus outline -->
             {#if focusedRegion}
               <g aria-hidden="true" pointer-events="none">
-                <rect
-                  x={focusedRegion.x - 0.46}
-                  y={focusedRegion.y - 0.46}
-                  width="0.92"
-                  height="0.92"
-                  rx="0.06"
-                  fill="none"
-                  stroke="#111210"
-                  stroke-width="5"
-                  vector-effect="non-scaling-stroke"
-                />
-                <rect
-                  x={focusedRegion.x - 0.46}
-                  y={focusedRegion.y - 0.46}
-                  width="0.92"
-                  height="0.92"
-                  rx="0.06"
-                  fill="none"
-                  stroke="#d5d7cf"
-                  stroke-width="2"
-                  vector-effect="non-scaling-stroke"
-                />
+                {#each ([['#111210', 5], ['#d5d7cf', 2]] as const) as [stroke, width]}
+                  <rect
+                    x={focusedRegion.x - 0.46}
+                    y={focusedRegion.y - 0.46}
+                    width="0.92"
+                    height="0.92"
+                    rx="0.06"
+                    fill="none"
+                    {stroke}
+                    stroke-width={width}
+                    vector-effect="non-scaling-stroke"
+                  />
+                {/each}
               </g>
             {/if}
           </svg>
@@ -613,11 +594,11 @@
 
     <!-- Side Rail on desktop / Compact bottom deck on mobile -->
     <aside
-      class="flex shrink-0 flex-col overflow-hidden rounded-md border border-[rgba(213,215,207,0.1)] bg-surface lg:max-h-full lg:w-[320px] lg:overflow-y-auto"
+      class="flex shrink-0 flex-col overflow-hidden rounded-md border border-ink/10 bg-surface lg:max-h-full lg:w-[320px] lg:overflow-y-auto"
     >
       <!-- Desktop Title + New Game -->
       <div
-        class="hidden items-center justify-between gap-3 border-b border-[rgba(213,215,207,0.08)] px-4 py-3.5 lg:flex"
+        class="hidden items-center justify-between gap-3 border-b border-ink/8 px-4 py-3.5 lg:flex"
       >
         <div>
           <h1 class="m-0 text-xl font-semibold tracking-[-0.025em] text-ink">
@@ -630,8 +611,8 @@
           bind:this={desktopRestartBtnEl}
           type="button"
           title="Start over with a newly randomized board"
-          onclick={() => requestNewGame(gameLayout, gameMode)}
-          class="bammi-control inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-sm border border-sage/45 bg-sage/18 px-3 font-mono text-[11px] font-medium text-ink transition-colors hover:border-sage/70 hover:bg-sage/28"
+          onclick={() => requestNewGame()}
+          class="focus-ring inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-sm border border-sage/45 bg-sage/18 px-3 font-mono text-[11px] font-medium text-ink transition-colors hover:border-sage/70 hover:bg-sage/28"
         >
           <Icon icon={RefreshIcon} size={13} strokeWidth={1.9} />
           <span>New game</span>
@@ -639,16 +620,8 @@
       </div>
 
       <!-- Desktop Turn + Scores -->
-      <div class="hidden border-b border-[rgba(213,215,207,0.08)] px-4 py-3.5 lg:block">
-        <div
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-          class="text-base font-semibold tracking-tight"
-          style="color: {PLAYERS[winner ?? turn].bright};"
-        >
-          {statusText}
-        </div>
+      <div class="hidden border-b border-ink/8 px-4 py-3.5 lg:block">
+        {@render status('text-base')}
         <p class="mt-1 mb-3 min-h-[2.4em] text-xs leading-relaxed text-ink-muted">{message}</p>
 
         <div class="grid grid-cols-2 gap-2 font-mono text-xs" aria-label="Regions owned by each player">
@@ -667,13 +640,13 @@
       </div>
 
       <!-- Always-visible compact controls -->
-      <div class="grid gap-2.5 border-b border-[rgba(213,215,207,0.08)] bg-canvas/35 px-3.5 py-3 sm:px-4">
+      <div class="grid gap-2.5 border-b border-ink/8 bg-canvas/35 px-3.5 py-3 sm:px-4">
         {@render pillGroup(
           'Size',
           'Board size',
           LAYOUT_ENTRIES.map(([key, spec]) => ({ value: key, label: spec.label, suffix: spec.count })),
           gameLayout,
-          selectLayout,
+          (v) => v !== gameLayout && requestNewGame(v),
           'px-2',
         )}
         {@render pillGroup(
@@ -681,7 +654,7 @@
           'Opponent mode',
           MODE_OPTIONS,
           gameMode,
-          selectMode,
+          (v) => v !== gameMode && requestNewGame(gameLayout, v),
           'px-2.5',
         )}
         {@render pillGroup(
@@ -701,21 +674,15 @@
       <!-- Concise always-visible rules -->
       <footer id="bammi-rules-summary" class="px-3.5 py-3 sm:px-4">
         <div class="grid grid-cols-1 gap-2 text-[11.5px] leading-relaxed text-ink-muted sm:grid-cols-3 lg:grid-cols-1 lg:gap-2.5">
-          <div>
-            <span class="font-mono text-[10px] tracking-wider text-sage uppercase">01 · Claim</span>
-            <p class="mt-0.5 m-0">Tap an empty region or your own pie to add a slice.</p>
-          </div>
-          <div>
-            <span class="font-mono text-[10px] tracking-wider text-sage uppercase">02 · Burst</span>
-            <p class="mt-0.5 m-0">Pies hold 1 slice per neighbor. One extra explodes and captures them.</p>
-          </div>
-          <div>
-            <span class="font-mono text-[10px] tracking-wider text-sage uppercase">03 · Win</span>
-            <p class="mt-0.5 m-0">Chains resolve automatically. Take every region to win.</p>
-          </div>
+          {#each RULES as [title, text], i}
+            <div>
+              <span class="font-mono text-[10px] tracking-wider text-sage uppercase">0{i + 1} · {title}</span>
+              <p class="mt-0.5 m-0">{text}</p>
+            </div>
+          {/each}
         </div>
 
-        <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[rgba(213,215,207,0.06)] pt-2.5 font-mono text-[10px] text-ink-dim">
+        <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-ink/6 pt-2.5 font-mono text-[10px] text-ink-dim">
           <span>B = Blue · R = Red</span>
           <a
             href="https://www.bammi.com/about.asp"
@@ -744,13 +711,13 @@
     <form method="dialog" class="flex flex-wrap justify-end gap-2.5">
       <button
         value="cancel"
-        class="bammi-control cursor-pointer rounded-sm border border-[rgba(213,215,207,0.14)] bg-surface-raised px-3.5 py-2 font-mono text-xs text-ink-muted hover:border-[rgba(213,215,207,0.28)] hover:text-ink"
+        class="focus-ring cursor-pointer rounded-sm border border-ink/14 bg-surface-raised px-3.5 py-2 font-mono text-xs text-ink-muted hover:border-ink/28 hover:text-ink"
       >
         Keep playing
       </button>
       <button
         value="restart"
-        class="bammi-control cursor-pointer rounded-sm border border-sage/50 bg-sage/20 px-3.5 py-2 font-mono text-xs font-medium text-ink hover:bg-sage/32"
+        class="focus-ring cursor-pointer rounded-sm border border-sage/50 bg-sage/20 px-3.5 py-2 font-mono text-xs font-medium text-ink hover:bg-sage/32"
       >
         New game
       </button>
@@ -759,11 +726,6 @@
 </div>
 
 <style>
-  .bammi-control:focus-visible {
-    outline: 2px solid var(--color-sage);
-    outline-offset: 2px;
-  }
-
   .bammi-stage {
     width: 100%;
     max-width: min(100%, 680px);
@@ -804,8 +766,7 @@
     filter: brightness(1.18);
   }
 
-  .bammi-region:focus,
-  .bammi-region:focus-visible {
+  .bammi-region:focus {
     outline: none;
   }
 

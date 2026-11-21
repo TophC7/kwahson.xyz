@@ -1,6 +1,19 @@
 <script module lang="ts">
+  import type { MiniatureId } from '../lib/miniatures';
+
+  /** True when the page was opened with `?gallery`. */
+  export const galleryLinked = () => new URLSearchParams(location.search).has('gallery');
+
+  /** Mirrors the open state into `?gallery=1`, keeping the path, other params and hash. */
+  export function linkGallery(open: boolean) {
+    const url = new URL(location.href);
+    if (open) url.searchParams.set('gallery', '1');
+    else url.searchParams.delete('gallery');
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+  }
+
   export interface GalleryItem {
-    id: string;
+    id: MiniatureId;
     name: string;
     group: string;
     badge: string;
@@ -21,8 +34,6 @@
     Delete02Icon,
     Tick01Icon,
   } from '@hugeicons/core-free-icons';
-  import type * as THREE from 'three';
-  import type { StudioBuilder } from '../lib/miniatures';
   import { createTurntable } from '../lib/turntable';
   import Icon from './Icon.svelte';
 
@@ -39,7 +50,6 @@
     storageKey: string;
     items: GalleryItem[];
     groups: Record<string, GalleryGroup>;
-    build?: (studio: StudioBuilder, id: string) => THREE.Group;
     previews?: Record<string, string>;
     tags?: Record<string, string>;
     onClose: () => void;
@@ -53,9 +63,9 @@
   // Status/comment review + JSON export only exist on the dev server; Vite folds this to `false` in builds so those branches drop out.
   const REVIEW = import.meta.env.DEV;
 
-  let { title, storageKey, items, groups, build, previews, tags, onClose }: Props = $props();
+  let { title, storageKey, items, groups, previews, tags, onClose }: Props = $props();
 
-  const turntable = $derived(createTurntable(build));
+  const turntable = createTurntable();
   $effect(() => turntable.destroy);
 
   function loadSaved(): Record<string, ReviewEntry> {
@@ -187,13 +197,13 @@
   aria-label={title}
 >
   <!-- Sticky top review bar -->
-  <header class="shrink-0 border-b border-[rgba(213,215,207,0.1)] bg-surface/95 px-3 py-2.5 backdrop-blur-md sm:px-5">
+  <header class="shrink-0 border-b border-ink/10 bg-surface/95 px-3 py-2.5 backdrop-blur-md sm:px-5">
     <div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2.5">
       <div class="flex items-center gap-3">
         <button
           type="button"
           onclick={onClose}
-          class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-sm border border-[rgba(213,215,207,0.14)] bg-surface-raised px-2.5 font-mono text-[11px] text-ink transition-colors hover:border-sage/45"
+          class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-sm border border-ink/14 bg-surface-raised px-2.5 font-mono text-[11px] text-ink transition-colors hover:border-sage/45"
         >
           <Icon icon={ArrowLeft01Icon} size={14} strokeWidth={2} />
           <span>Back</span>
@@ -212,7 +222,7 @@
           <div
             role="group"
             aria-label="Preview view mode"
-            class="flex items-center rounded-sm border border-[rgba(213,215,207,0.12)] bg-canvas/80 p-0.5 font-mono text-[10.5px]"
+            class="flex items-center rounded-sm border border-ink/12 bg-canvas/80 p-0.5 font-mono text-[10.5px]"
           >
             {#each [
               { id: 'both', label: 'Both' },
@@ -236,7 +246,7 @@
           <button
             type="button"
             onclick={() => (showJson = !showJson)}
-            class="inline-flex h-8 cursor-pointer items-center rounded-sm border border-[rgba(213,215,207,0.12)] bg-surface-raised px-2.5 font-mono text-[11px] text-ink-muted transition-colors hover:border-[rgba(213,215,207,0.26)] hover:text-ink"
+            class="inline-flex h-8 cursor-pointer items-center rounded-sm border border-ink/12 bg-surface-raised px-2.5 font-mono text-[11px] text-ink-muted transition-colors hover:border-ink/26 hover:text-ink"
           >
             {showJson ? 'Hide JSON' : 'Preview JSON'}
           </button>
@@ -256,7 +266,7 @@
               onclick={clearAllNotes}
               class="inline-flex h-8 cursor-pointer items-center gap-1 rounded-sm border px-2 font-mono text-[10.5px] transition-colors {confirmClear
                 ? 'border-[#c96c5b]/60 bg-[#c96c5b]/20 text-[#e8a397]'
-                : 'border-[rgba(213,215,207,0.1)] bg-surface-raised text-ink-dim hover:text-ink-muted'}"
+                : 'border-ink/10 bg-surface-raised text-ink-dim hover:text-ink-muted'}"
               title="Clear all saved notes"
             >
               <Icon icon={Delete02Icon} size={13} strokeWidth={1.8} />
@@ -274,7 +284,7 @@
         onclick={() => (filter = 'all')}
         class="cursor-pointer rounded-sm border px-2 py-0.5 font-mono text-[10.5px] transition-colors {filter === 'all'
           ? 'border-sage/50 bg-sage/20 text-ink'
-          : 'border-[rgba(213,215,207,0.09)] bg-canvas/60 text-ink-muted hover:text-ink'}"
+          : 'border-ink/9 bg-canvas/60 text-ink-muted hover:text-ink'}"
       >
         All ({items.length})
       </button>
@@ -285,13 +295,13 @@
           onclick={() => (filter = 'notes')}
           class="cursor-pointer rounded-sm border px-2 py-0.5 font-mono text-[10.5px] transition-colors {filter === 'notes'
             ? 'border-ochre/60 bg-ochre/20 text-ink'
-            : 'border-[rgba(213,215,207,0.09)] bg-canvas/60 text-ink-muted hover:text-ink'}"
+            : 'border-ink/9 bg-canvas/60 text-ink-muted hover:text-ink'}"
         >
           Flagged / Notes ({exportItems.length})
         </button>
       {/if}
 
-      <span class="mx-0.5 h-3.5 w-px bg-[rgba(213,215,207,0.12)]" aria-hidden="true"></span>
+      <span class="mx-0.5 h-3.5 w-px bg-ink/12" aria-hidden="true"></span>
 
       {#each Object.keys(groups) as group}
         {@const count = items.filter((d) => d.group === group).length}
@@ -300,7 +310,7 @@
           onclick={() => (filter = group)}
           class="cursor-pointer rounded-sm border px-2 py-0.5 font-mono text-[10.5px] transition-colors {filter === group
             ? 'border-sage/50 bg-sage/20 text-ink'
-            : 'border-[rgba(213,215,207,0.09)] bg-canvas/60 text-ink-muted hover:text-ink'}"
+            : 'border-ink/9 bg-canvas/60 text-ink-muted hover:text-ink'}"
         >
           {groups[group].label} ({count})
         </button>
@@ -310,7 +320,7 @@
 
   <!-- Collapsible JSON preview drawer -->
   {#if REVIEW && showJson}
-    <div class="shrink-0 border-b border-[rgba(213,215,207,0.12)] bg-[#141613] px-3 py-3 sm:px-5">
+    <div class="shrink-0 border-b border-ink/12 bg-[#141613] px-3 py-3 sm:px-5">
       <div class="mx-auto max-w-7xl">
         <div class="mb-1.5 flex items-center justify-between font-mono text-[10.5px] text-ink-dim">
           <span>JSON payload ({exportItems.length} flagged/commented assets)</span>
@@ -322,7 +332,7 @@
             {copied ? 'Copied!' : 'Copy to clipboard'}
           </button>
         </div>
-        <pre class="max-h-48 overflow-auto rounded-sm border border-[rgba(213,215,207,0.1)] bg-canvas p-3 font-mono text-[11px] leading-relaxed text-ink-muted">{exportJson}</pre>
+        <pre class="max-h-48 overflow-auto rounded-sm border border-ink/10 bg-canvas p-3 font-mono text-[11px] leading-relaxed text-ink-muted">{exportJson}</pre>
       </div>
     </div>
   {/if}
@@ -331,7 +341,7 @@
   <div class="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5">
     <div class="mx-auto max-w-7xl">
       {#if filteredDesigns.length === 0}
-        <div class="rounded-md border border-dashed border-[rgba(213,215,207,0.14)] bg-surface/40 p-10 text-center">
+        <div class="rounded-md border border-dashed border-ink/14 bg-surface/40 p-10 text-center">
           <p class="font-mono text-xs text-ink-muted">No assets match this filter yet.</p>
           <button
             type="button"
@@ -354,10 +364,10 @@
                   ? 'border-ochre/60'
                   : entry.status === 'ok'
                     ? 'border-sage/45'
-                    : 'border-[rgba(213,215,207,0.1)]'}"
+                    : 'border-ink/10'}"
             >
               <!-- Card header -->
-              <div class="flex items-center justify-between gap-2 border-b border-[rgba(213,215,207,0.08)] px-3 py-2">
+              <div class="flex items-center justify-between gap-2 border-b border-ink/8 px-3 py-2">
                 <div class="flex min-w-0 items-center gap-2">
                   <span
                     class="inline-flex h-5 min-w-[22px] items-center justify-center rounded-[3px] px-1 font-mono text-[10px] font-bold text-[#fbf7ee]"
@@ -377,7 +387,7 @@
                       {tag}
                     </span>
                   {/if}
-                  <span class="rounded-[3px] border border-[rgba(213,215,207,0.09)] bg-canvas/70 px-1.5 py-0.5 font-mono text-[9px] text-ink-dim uppercase">
+                  <span class="rounded-[3px] border border-ink/9 bg-canvas/70 px-1.5 py-0.5 font-mono text-[9px] text-ink-dim uppercase">
                     {group.label}
                   </span>
                 </div>
@@ -402,7 +412,7 @@
 
                 {#if !previews || viewMode !== 'tile'}
                   <div
-                    class="flex items-center justify-center rounded-[6px] border border-[rgba(213,215,207,0.08)] bg-[#232721] p-1.5 {previews && viewMode === 'both'
+                    class="flex items-center justify-center rounded-[6px] border border-ink/8 bg-[#232721] p-1.5 {previews && viewMode === 'both'
                       ? 'h-36 w-32'
                       : 'h-48 w-48'}"
                   >
@@ -418,7 +428,7 @@
 
               {#if REVIEW}
                 <!-- Status pills + comment input -->
-                <div class="flex flex-1 flex-col gap-2 border-t border-[rgba(213,215,207,0.08)] p-2.5">
+                <div class="flex flex-1 flex-col gap-2 border-t border-ink/8 p-2.5">
                   <div class="flex items-center gap-1 font-mono text-[10px]">
                     {#each STATUSES as btn}
                       <button
@@ -426,7 +436,7 @@
                         onclick={() => setStatus(design.id, btn.id)}
                         class="flex-1 cursor-pointer rounded-sm border py-1 transition-colors {entry.status === btn.id
                           ? btn.cls
-                          : 'border-[rgba(213,215,207,0.09)] bg-canvas/60 text-ink-dim hover:text-ink-muted'}"
+                          : 'border-ink/9 bg-canvas/60 text-ink-dim hover:text-ink-muted'}"
                       >
                         {btn.label}
                       </button>
@@ -438,7 +448,7 @@
                     value={entry.comment}
                     oninput={(e) => patchEntry(design.id, { comment: e.currentTarget.value })}
                     placeholder="Add comment for this asset..."
-                    class="w-full resize-y rounded-sm border border-[rgba(213,215,207,0.1)] bg-canvas/80 px-2 py-1.5 text-xs text-ink placeholder:text-ink-dim focus:border-sage/55 focus:outline-none"
+                    class="w-full resize-y rounded-sm border border-ink/10 bg-canvas/80 px-2 py-1.5 text-xs text-ink placeholder:text-ink-dim focus:border-sage/55 focus:outline-none"
                   ></textarea>
                 </div>
               {/if}
@@ -458,8 +468,8 @@
       aria-modal="true"
       aria-label={`Inspect ${focusedDesign.name}`}
     >
-      <div class="w-full max-w-2xl overflow-hidden rounded-md border border-[rgba(213,215,207,0.16)] bg-surface shadow-[0_28px_80px_rgba(0,0,0,0.8)]">
-        <div class="flex items-center justify-between gap-2 border-b border-[rgba(213,215,207,0.1)] px-4 py-3">
+      <div class="w-full max-w-2xl overflow-hidden rounded-md border border-ink/16 bg-surface shadow-[0_28px_80px_rgba(0,0,0,0.8)]">
+        <div class="flex items-center justify-between gap-2 border-b border-ink/10 px-4 py-3">
           <div class="flex items-center gap-2.5">
             <span
               class="inline-flex h-6 min-w-[26px] items-center justify-center rounded-[3px] px-1.5 font-mono text-xs font-bold text-[#fbf7ee]"
@@ -480,7 +490,7 @@
             <button
               type="button"
               onclick={() => stepFocused(-1)}
-              class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm border border-[rgba(213,215,207,0.12)] bg-surface-raised text-ink-muted hover:text-ink"
+              class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm border border-ink/12 bg-surface-raised text-ink-muted hover:text-ink"
               title="Previous (Left Arrow)"
             >
               <Icon icon={ArrowLeft01Icon} size={15} strokeWidth={2} />
@@ -488,7 +498,7 @@
             <button
               type="button"
               onclick={() => stepFocused(1)}
-              class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm border border-[rgba(213,215,207,0.12)] bg-surface-raised text-ink-muted hover:text-ink"
+              class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm border border-ink/12 bg-surface-raised text-ink-muted hover:text-ink"
               title="Next (Right Arrow)"
             >
               <Icon icon={ArrowRight01Icon} size={15} strokeWidth={2} />
@@ -496,7 +506,7 @@
             <button
               type="button"
               onclick={() => (focusedId = null)}
-              class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm border border-[rgba(213,215,207,0.12)] bg-surface-raised text-ink-muted hover:text-ink"
+              class="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm border border-ink/12 bg-surface-raised text-ink-muted hover:text-ink"
               title="Close (Esc)"
             >
               <Icon icon={Cancel01Icon} size={15} strokeWidth={2} />
@@ -519,7 +529,7 @@
           {/if}
           <div class="flex flex-col items-center gap-2">
             <span class="font-mono text-[10px] tracking-wider text-ink-dim uppercase">3D Miniature</span>
-            <div class="flex h-64 w-64 items-center justify-center rounded-[8px] border border-[rgba(213,215,207,0.1)] bg-[#232721] p-3">
+            <div class="flex h-64 w-64 items-center justify-center rounded-[8px] border border-ink/10 bg-[#232721] p-3">
               <canvas
                 {@attach turntable.spin(focusedDesign.id)}
                 width="512"
@@ -532,7 +542,7 @@
 
         {#if REVIEW}
           {@const entry = getEntry(focusedDesign.id)}
-          <div class="flex flex-col gap-2.5 border-t border-[rgba(213,215,207,0.1)] p-4">
+          <div class="flex flex-col gap-2.5 border-t border-ink/10 p-4">
             <div class="flex items-center gap-2 font-mono text-[11px]">
               <span class="text-ink-dim">Status:</span>
               {#each STATUSES as btn}
@@ -541,7 +551,7 @@
                   onclick={() => setStatus(focusedDesign.id, btn.id)}
                   class="cursor-pointer rounded-sm border px-3 py-1 transition-colors {entry.status === btn.id
                     ? btn.cls
-                    : 'border-[rgba(213,215,207,0.1)] bg-canvas/60 text-ink-dim hover:text-ink'}"
+                    : 'border-ink/10 bg-canvas/60 text-ink-dim hover:text-ink'}"
                 >
                   {btn.label}
                 </button>
@@ -553,7 +563,7 @@
               value={entry.comment}
               oninput={(e) => patchEntry(focusedDesign.id, { comment: e.currentTarget.value })}
               placeholder="Describe what looks whacky or what to change..."
-              class="w-full resize-y rounded-sm border border-[rgba(213,215,207,0.12)] bg-canvas/90 px-3 py-2 text-xs text-ink placeholder:text-ink-dim focus:border-sage/55 focus:outline-none"
+              class="w-full resize-y rounded-sm border border-ink/12 bg-canvas/90 px-3 py-2 text-xs text-ink placeholder:text-ink-dim focus:border-sage/55 focus:outline-none"
             ></textarea>
           </div>
         {/if}

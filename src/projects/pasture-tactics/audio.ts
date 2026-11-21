@@ -1,9 +1,9 @@
 import { createSfxEngine } from '../../lib/sfx';
+import type { HeroKind, EnemyKind } from './data';
 
-export type SfxName =
+type SfxName =
   | 'select' | 'deselect' | 'invalid' | 'uiClick' | 'undo' | 'step' | 'fly'
-  | 'Shove' | 'Mend' | 'Sting' | 'Ram' | 'Pounce' | 'Egg' | 'Wool' | 'Belly Flop' | 'Gust'
-  | 'Zap' | 'Laser' | 'Slam' | 'Mortar' | 'Beam' | 'Flame' | 'Chain' | 'Jet' | 'split'
+  | HeroKind | EnemyKind
   | 'bump' | 'heal' | 'hit' | 'block' | 'koHero' | 'koEnemy' | 'crunch'
   | 'place' | 'land' | 'eggHit' | 'item' | 'splat' | 'tractor'
   | 'enemyPhase' | 'playerPhase' | 'endTurn' | 'won' | 'lost';
@@ -12,7 +12,6 @@ export interface TacticsAudio {
   isMuted(): boolean;
   setMuted(next: boolean): boolean;
   unlock(): void;
-  setHidden(next: boolean): void;
   play(name: SfxName, step?: number): void;
   destroy(): void;
 }
@@ -62,69 +61,69 @@ export function createTacticsAudio(): TacticsAudio {
     fly() {
       tone({ freq: 180, endFreq: 210, type: 'sawtooth', gain: 0.03, duration: 0.10, filterFreq: 900 });
     },
-    Shove: bump,
+    cow: bump, // Shove
     bump,
-    Mend: heal,
+    healer: heal, // Mend
     heal,
-    Sting() {
+    bee() { // Sting
       tone({ freq: 900, endFreq: 1400, type: 'sawtooth', gain: 0.045, duration: 0.08, filterFreq: 2400 });
     },
-    Ram() {
+    goat() { // Ram
       for (let i = 0; i < 3; i++) noise({ freq: 900, gain: 0.09, delay: i * 0.06 });
       tone({ freq: 120, endFreq: 70, gain: 0.12, duration: 0.16, delay: 0.16 });
     },
-    Pounce() {
+    cat() { // Pounce
       tone({ freq: 700, endFreq: 1100, gain: 0.06, duration: 0.08 });
       tone({ freq: 1100, endFreq: 800, gain: 0.05, duration: 0.08, delay: 0.08 });
       noise({ freq: 2600, gain: 0.06, delay: 0.14 });
     },
-    Egg() {
+    hen() { // Egg
       tone({ freq: 520, endFreq: 600, type: 'triangle', gain: 0.06, duration: 0.07 });
       noise({ freq: 500, gain: 0.07, delay: 0.16 });
     },
-    Wool() {
+    sheep() { // Wool
       tone({ freq: 440, gain: 0.05, duration: 0.30 });
       tone({ freq: 554, gain: 0.045, duration: 0.30, delay: 0.04 });
     },
-    'Belly Flop'() {
+    pig() { // Belly Flop
       tone({ freq: 130, endFreq: 52, gain: 0.15, duration: 0.18 });
       noise({ freq: 380, gain: 0.12, duration: 0.10 });
     },
-    Gust() {
+    duck() { // Gust
       noise({ freq: 1200, gain: 0.09, duration: 0.12 });
       noise({ freq: 1800, gain: 0.13, duration: 0.18, delay: 0.10 });
     },
-    Zap: zap,
-    Flame() {
+    visitor: zap, // Zap
+    redSprout() { // Flame
       noise({ freq: 700, gain: 0.12, duration: 0.25, q: 1.4 });
       tone({ freq: 180, endFreq: 120, type: 'sawtooth', gain: 0.04, duration: 0.25, filterFreq: 900 });
     },
-    Chain() {
+    yellowSprout() { // Chain
       tone({ freq: 1600, endFreq: 400, type: 'square', gain: 0.035, duration: 0.12, filterFreq: 3000 });
       tone({ freq: 1200, endFreq: 300, type: 'square', gain: 0.03, duration: 0.10, delay: 0.06, filterFreq: 3000 });
       noise({ freq: 3200, gain: 0.06, duration: 0.05 });
     },
-    Jet() {
+    blueSprout() { // Jet
       noise({ freq: 1800, gain: 0.10, duration: 0.22, q: 1.2 });
       tone({ freq: 400, endFreq: 700, gain: 0.04, duration: 0.18 });
     },
-    split() {
+    sprouts() { // Split
       [[500, 800], [600, 950], [700, 1100]].forEach(([freq, endFreq], i) => {
         tone({ freq, endFreq, type: 'triangle', gain: 0.05 - i * 0.005, duration: 0.08, delay: i * 0.06 });
       });
     },
-    Laser() {
+    scout() { // Laser
       tone({ freq: 1200, endFreq: 300, type: 'sawtooth', gain: 0.05, duration: 0.14, filterFreq: 2600 });
     },
-    Slam() {
+    brute() { // Slam
       tone({ freq: 90, endFreq: 50, gain: 0.14, duration: 0.22 });
       noise({ freq: 180, gain: 0.12, duration: 0.12 });
     },
-    Mortar() {
+    lobber() { // Mortar
       tone({ freq: 900, endFreq: 300, gain: 0.05, duration: 0.40 });
       noise({ freq: 220, gain: 0.14, duration: 0.18, delay: 0.42 });
     },
-    Beam() {
+    saucer() { // Beam
       tone({ freq: 300, endFreq: 360, gain: 0.05, duration: 0.15 });
       tone({ freq: 360, endFreq: 300, gain: 0.05, duration: 0.15, delay: 0.15 });
     },
@@ -198,7 +197,6 @@ export function createTacticsAudio(): TacticsAudio {
     isMuted: sfx.isMuted,
     setMuted: sfx.setMuted,
     unlock: sfx.unlock,
-    setHidden: sfx.setHidden,
     play(name, step = 0) {
       if (!sfx.ready()) return;
       recipes[name](step);

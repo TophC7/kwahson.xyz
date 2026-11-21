@@ -1,14 +1,11 @@
 import * as THREE from 'three';
+import { isGameKey } from '../../lib/hotkeys';
+import { scoped } from '../../lib/scope';
 import { createBoardCamera, type Insets } from '../../lib/boardCamera';
 import { createBursts } from '../../lib/bursts';
-import { buildPastureTable } from '../../lib/pastureTable';
+import { addTableLights, buildPastureTable } from '../../lib/pastureTable';
 import { randomSeed } from '../../lib/rng';
-import {
-  createPastureKit,
-  PASTURE_HEMI_GROUND,
-  PASTURE_HEMI_SKY,
-  PASTURE_SUN_COLOR,
-} from '../../lib/pastureKit';
+import { createPastureKit } from '../../lib/pastureKit';
 import { createMoojongAudio } from './audio';
 import {
   canTilesMatch,
@@ -71,7 +68,6 @@ export interface MoojongController {
   toggleMute(): void;
   toggleHighlightFree(): void;
   resetView(): void;
-  refit(): void;
   destroy(): void;
   readonly previews: Record<string, string>;
 }
@@ -79,7 +75,6 @@ export interface MoojongController {
 interface TileVisual {
   tile: BoardTile;
   group: THREE.Group;
-  hitMesh: THREE.Mesh;
   sageMesh: THREE.Mesh;
   ivoryMesh: THREE.Mesh;
   faceMesh: THREE.Mesh;
@@ -173,73 +168,40 @@ function createTileGeometries() {
 export function mountMoojong({
   viewport,
   insets,
+  chrome,
   onState,
 }: {
   viewport: HTMLElement;
   insets: (width: number, height: number) => Insets;
+  chrome: Element[];
   onState: (patch: Partial<MoojongHudState>) => void;
 }): MoojongController {
-  const cleanups: (() => void)[] = [];
-  let disposed = false;
-
-  function runCleanups() {
-    if (disposed) return;
-    disposed = true;
-    for (let i = cleanups.length - 1; i >= 0; i--) {
-      cleanups[i]();
-    }
-    cleanups.length = 0;
-  }
-
-  try {
-    const abort = new AbortController();
-    const { signal } = abort;
-    cleanups.push(() => abort.abort());
+  return scoped(({ signal, add, dispose }) => {
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setClearColor(0x000000, 0);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     viewport.appendChild(renderer.domElement);
-    cleanups.push(() => {
+    add(() => {
       renderer.dispose();
       renderer.domElement.remove();
     });
 
     const kit = createPastureKit();
-    cleanups.push(() => kit.dispose());
+    add(() => kit.dispose());
 
     // Render all 42 Pasture Patrol 3D miniatures onto high-DPI tile face textures once
     const atlas = buildTileArtAtlas(renderer, kit);
-    cleanups.push(() => atlas.dispose());
+    add(() => atlas.dispose());
 
     const scene = new THREE.Scene();
 
     // Warm Pasture Patrol studio lighting with soft upper-left sun casting
     // depth-revealing shadows down and to the right of every tile stack.
-    scene.add(new THREE.HemisphereLight(PASTURE_HEMI_SKY, PASTURE_HEMI_GROUND, 2.05));
-    const sun = new THREE.DirectionalLight(PASTURE_SUN_COLOR, 2.4);
-    sun.position.set(-9, 22, -7);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.near = 2;
-    sun.shadow.camera.far = 48;
-    sun.shadow.camera.left = -12;
-    sun.shadow.camera.right = 12;
-    sun.shadow.camera.top = 12;
-    sun.shadow.camera.bottom = -12;
-    sun.shadow.bias = -0.0005;
-    sun.shadow.normalBias = 0.025;
-    scene.add(sun);
-
-    const fill = new THREE.DirectionalLight(0xd8e8d6, 0.55);
-    fill.position.set(10, 12, -8);
-    scene.add(fill);
+    add(addTableLights(scene, -7));
 
     const tileGeos = createTileGeometries();
-    cleanups.push(() => tileGeos.dispose());
+    add(() => tileGeos.dispose());
 
     const sageBackMat = new THREE.MeshStandardMaterial({
       color: 0x567752,
@@ -258,7 +220,7 @@ export function mountMoojong({
       opacity: 0.34,
       depthWrite: false,
     });
-    cleanups.push(() => {
+    add(() => {
       sageBackMat.dispose();
       ivoryBodyMat.dispose();
       hitMat.dispose();
@@ -280,12 +242,12 @@ export function mountMoojong({
       }
       return mat;
     }
-    cleanups.push(() => {
+    add(() => {
       for (const byDepth of shadedMats.values()) for (const mat of byDepth) mat?.dispose();
     });
 
     const audio = createMoojongAudio();
-    cleanups.push(() => audio.destroy());
+    add(() => audio.destroy());
 
     // Scene groups
     const tableGroup = new THREE.Group();
@@ -300,6 +262,7 @@ export function mountMoojong({
     let currentBoard: GeneratedBoard | null = null;
     let visuals = new Map<number, TileVisual>();
     let hitMeshes: THREE.Mesh[] = [];
+    let freeIds = new Set<number>();
     let selectedId: number | null = null;
     let hoveredId: number | null = null;
     let hintedIds: [number, number] | null = null;
@@ -389,7 +352,6 @@ export function mountMoojong({
       const visual: TileVisual = {
         tile,
         group,
-        hitMesh,
         sageMesh,
         ivoryMesh,
         faceMesh,
@@ -442,15 +404,15 @@ export function mountMoojong({
     function refreshFreeStates() {
       if (!currentBoard) return;
       const active = getActiveTiles(currentBoard.tiles);
-      const freeSet = new Set<number>();
+      freeIds = new Set<number>();
       for (const t of active) {
-        if (isSlotFree(t, active)) freeSet.add(t.id);
+        if (isSlotFree(t, active)) freeIds.add(t.id);
       }
       for (const v of visuals.values()) {
-        if (v.tile.removed || v.clearing) {
+        if (v.tile.removed) {
           v.dimMesh.visible = false;
         } else {
-          v.dimMesh.visible = highlightFree && !freeSet.has(v.tile.id);
+          v.dimMesh.visible = highlightFree && !freeIds.has(v.tile.id);
         }
       }
     }
@@ -556,7 +518,6 @@ export function mountMoojong({
 
     function matchTiles(a: BoardTile, b: BoardTile) {
       if (!currentBoard) return;
-      timerRunning = true;
 
       const designA = TILE_DESIGN_MAP.get(a.designId);
       const isBonus = Boolean(designA?.isBonus);
@@ -584,7 +545,6 @@ export function mountMoojong({
           v.clearing = true;
           v.clearProgress = 0;
           v.clearTargetOffset.copy(mid).sub(v.basePos).multiplyScalar(0.28);
-          v.hitMesh.visible = false;
           bursts.spawn(v.basePos, burstColor, 8);
         }
       }
@@ -605,7 +565,7 @@ export function mountMoojong({
       if (!currentBoard || phase !== 'playing') return;
       const tile = currentBoard.tiles[tileId];
       const vis = visuals.get(tileId);
-      if (!tile || tile.removed || !vis || vis.clearing) return;
+      if (!tile || tile.removed || !vis) return;
 
       const active = getActiveTiles(currentBoard.tiles);
       const reason = getBlockReason(tile, active);
@@ -667,7 +627,6 @@ export function mountMoojong({
           v.group.position.copy(v.basePos);
           v.spawnDelay = 0;
           v.spawnProgress = 0.2;
-          v.hitMesh.visible = true;
         }
       }
 
@@ -749,14 +708,8 @@ export function mountMoojong({
 
     function pickTileAt(clientX: number, clientY: number): number | null {
       if (!cam.setRay(raycaster, clientX, clientY)) return null;
-      const activeHits = hitMeshes.filter((m) => {
-        const id = m.userData.tileId as number;
-        const v = visuals.get(id);
-        return Boolean(v && !v.tile.removed && !v.clearing);
-      });
-      const hits = raycaster.intersectObjects(activeHits, false);
-      if (hits.length === 0) return null;
-      return hits[0].object.userData.tileId as number;
+      const hit = raycaster.intersectObjects(hitMeshes, false).find((h) => !currentBoard?.tiles[h.object.userData.tileId as number].removed);
+      return hit ? (hit.object.userData.tileId as number) : null;
     }
 
     const cam = createBoardCamera({
@@ -769,6 +722,7 @@ export function mountMoojong({
       },
       maxZoom: MAX_ZOOM,
       insets,
+      chrome,
       signal,
       onPress: () => audio.unlock(),
       onTap: (x, y) => {
@@ -789,8 +743,7 @@ export function mountMoojong({
     window.addEventListener(
       'keydown',
       (e) => {
-        if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
-        if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return;
+        if (e.repeat || !isGameKey(e)) return;
         const k = e.key.toLowerCase();
         if (k === 'm') {
           toggleMute();
@@ -807,14 +760,6 @@ export function mountMoojong({
       { signal },
     );
 
-    document.addEventListener(
-      'visibilitychange',
-      () => {
-        audio.setHidden(document.hidden);
-      },
-      { signal },
-    );
-
     // -------------------------------------------------------------------------
     // Animation Loop
     // -------------------------------------------------------------------------
@@ -827,7 +772,7 @@ export function mountMoojong({
       const dt = Math.min(clock.getDelta(), 0.05);
       clockTime += dt;
 
-      if (timerRunning && phase === 'playing') {
+      if (timerRunning) {
         elapsedSec += dt;
         const whole = Math.floor(elapsedSec);
         if (whole !== lastTimerReported) {
@@ -842,9 +787,6 @@ export function mountMoojong({
       }
 
       cam.update(dt);
-
-      // Active free set for hover lift
-      const active = currentBoard ? getActiveTiles(currentBoard.tiles) : [];
 
       for (const v of visuals.values()) {
         if (v.clearing) {
@@ -884,7 +826,7 @@ export function mountMoojong({
 
         const isSelected = selectedId === v.tile.id;
         const isHinted = hintedIds !== null && (hintedIds[0] === v.tile.id || hintedIds[1] === v.tile.id);
-        const isHovered = hoveredId === v.tile.id && isSlotFree(v.tile, active);
+        const isHovered = hoveredId === v.tile.id && freeIds.has(v.tile.id);
 
         v.selectAmount = THREE.MathUtils.lerp(v.selectAmount, isSelected ? 1 : 0, 1 - Math.exp(-dt * 16));
         v.hoverAmount = THREE.MathUtils.lerp(v.hoverAmount, isHovered && !isSelected ? 1 : 0, 1 - Math.exp(-dt * 16));
@@ -949,9 +891,9 @@ export function mountMoojong({
     // Boot initial Medium board
     loadBoard('medium', randomSeed(), 'Match identical free tiles to clear the pasture');
     rafId = requestAnimationFrame(tick);
-    cleanups.push(() => cancelAnimationFrame(rafId));
+    add(() => cancelAnimationFrame(rafId));
 
-    function deal(difficulty: Difficulty, seed: number, announce?: string, portrait = isPortrait()) {
+    function deal(difficulty: Difficulty, seed: number, announce?: string, portrait?: boolean) {
       audio.playUiClick(true);
       loadBoard(difficulty, seed, announce, portrait);
     }
@@ -970,12 +912,8 @@ export function mountMoojong({
       toggleMute,
       toggleHighlightFree,
       resetView,
-      refit: cam.refit,
       previews: atlas.previews,
-      destroy: runCleanups,
+      destroy: dispose,
     };
-  } catch (err) {
-    runCleanups();
-    throw err;
-  }
+  });
 }

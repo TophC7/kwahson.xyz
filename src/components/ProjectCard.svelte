@@ -1,7 +1,7 @@
 <script lang="ts">
   import { ArrowUpRight01Icon } from '@hugeicons/core-free-icons';
   import Icon from './Icon.svelte';
-  import type { ProjectEntry } from '../lib/types';
+  import type { ProjectEntry } from '../projects';
 
   interface Props {
     project: ProjectEntry;
@@ -22,7 +22,7 @@
   href="/{project.slug}"
   onpointermove={handlePointerMove}
   style:--stagger="{index * 75}ms"
-  class="project-card animate-card-reveal group relative flex flex-col overflow-hidden rounded-md border border-[rgba(213,215,207,0.09)] bg-surface transition-[transform,border-color,box-shadow] duration-300 ease-out hover:-translate-y-1 hover:border-[rgba(148,164,144,0.32)] hover:shadow-[0_18px_40px_-24px_rgba(0,0,0,0.85)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-sage"
+  class="project-card animate-card-reveal group relative flex flex-col overflow-hidden rounded-md border border-ink/9 bg-surface transition-[transform,border-color,box-shadow] duration-300 ease-out hover:-translate-y-1 hover:border-[rgba(148,164,144,0.32)] hover:shadow-[0_18px_40px_-24px_rgba(0,0,0,0.85)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-sage"
 >
   <div
     class="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
@@ -31,26 +31,19 @@
   ></div>
 
   <div
-    class="relative aspect-[16/10] w-full overflow-hidden border-b border-[rgba(213,215,207,0.08)] bg-[#141613]"
+    class="relative aspect-[16/10] w-full overflow-hidden border-b border-ink/8 bg-[#141613]"
   >
     <div
       class="bg-field-grid absolute inset-0 opacity-55 transition-transform duration-500 ease-out group-hover:scale-[1.03]"
       aria-hidden="true"
     ></div>
 
-    {#if project.preview}
-      {@const Preview = project.preview}
-      <div class="relative h-full w-full">
-        <Preview />
-      </div>
-    {:else}
-      <div class="relative grid h-full w-full place-items-center font-mono text-xs text-ink-dim">
-        /{project.slug}
-      </div>
-    {/if}
+    <div class="relative h-full w-full">
+      <project.preview />
+    </div>
 
     <div
-      class="pointer-events-none absolute top-3 left-3 flex items-center gap-1.5 rounded-sm border border-[rgba(213,215,207,0.1)] bg-canvas/80 px-2 py-0.5 font-mono text-[10px] tracking-wider text-ink-muted uppercase backdrop-blur-xs"
+      class="pointer-events-none absolute top-3 left-3 flex items-center gap-1.5 rounded-sm border border-ink/10 bg-canvas/80 px-2 py-0.5 font-mono text-[10px] tracking-wider text-ink-muted uppercase backdrop-blur-xs"
     >
       <span>{String(index + 1).padStart(2, '0')}</span>
       <span class="text-ink-dim">/</span>
@@ -73,7 +66,7 @@
           {project.title}
         </h2>
         <span
-          class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm border border-[rgba(213,215,207,0.08)] bg-surface-raised/70 text-ink-muted transition-all duration-300 group-hover:border-sage/40 group-hover:bg-sage/12 group-hover:text-ink"
+          class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm border border-ink/8 bg-surface-raised/70 text-ink-muted transition-all duration-300 group-hover:border-sage/40 group-hover:bg-sage/12 group-hover:text-ink"
           aria-hidden="true"
         >
           <Icon
@@ -94,7 +87,7 @@
       <div class="flex flex-wrap gap-1.5">
         {#each project.tags as tag}
           <span
-            class="rounded-sm border border-[rgba(213,215,207,0.08)] bg-canvas/70 px-2 py-0.5 font-mono text-[10.5px] text-ink-dim transition-colors duration-200 group-hover:border-[rgba(213,215,207,0.14)] group-hover:text-ink-muted"
+            class="rounded-sm border border-ink/8 bg-canvas/70 px-2 py-0.5 font-mono text-[10.5px] text-ink-dim transition-colors duration-200 group-hover:border-ink/14 group-hover:text-ink-muted"
           >
             {tag}
           </span>

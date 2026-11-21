@@ -56,6 +56,11 @@ body,
   background-size: 26px 26px;
 }
 
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-sage);
+  outline-offset: 2px;
+}
+
 @keyframes card-reveal {
   from {
     opacity: 0;

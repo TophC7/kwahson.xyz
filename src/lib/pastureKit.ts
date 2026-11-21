@@ -19,7 +19,7 @@ export interface PastureKit {
     color: number,
     scale: [number, number, number],
     position?: [number, number, number],
-    mat?: THREE.Material | null,
+    mat?: THREE.Material,
   ): THREE.Mesh;
   makeCow(options?: { special?: boolean }): { mesh: THREE.Group; legs: CowLeg[] };
   makeUfo(): THREE.Group;
@@ -55,9 +55,9 @@ export function createPastureKit(): PastureKit {
     color: number,
     scale: [number, number, number],
     position: [number, number, number] = [0, 0, 0],
-    mat: THREE.Material | null = null,
+    mat?: THREE.Material,
   ): THREE.Mesh {
-    const mesh = new THREE.Mesh(geometry[kind], mat || material(color));
+    const mesh = new THREE.Mesh(geometry[kind], mat ?? material(color));
     mesh.scale.set(...scale);
     mesh.position.set(...position);
     parent.add(mesh);

@@ -1,3 +1,4 @@
+import type { MiniatureId } from '../../lib/miniatures';
 import * as THREE from 'three';
 import type { PastureAudio } from './audio';
 import type { PastureKit } from '../../lib/pastureKit';
@@ -5,7 +6,7 @@ import type { PastureKit } from '../../lib/pastureKit';
 interface FieldEntity {
   mesh: THREE.Group;
   lift: number;
-  type: 'cow' | 'obstacle';
+  aiming?: boolean;
   animal?: string;
   heading: number;
   scatter: number;
@@ -14,12 +15,13 @@ interface FieldEntity {
 interface ThreatOptions {
   scene: THREE.Scene;
   kit: PastureKit;
-  miniature(id: string): THREE.Group;
+  miniature(id: MiniatureId): THREE.Group;
   audio: PastureAudio;
   player: THREE.Vector3;
   /** UFO cruising height; corn shells fly at the hull, not its shadow. */
   hover: number;
   entities: readonly FieldEntity[];
+  clamp: (v: number) => number;
   spawnGunner(): void;
   damage(amount: number, text: string): void;
   burst(position: THREE.Vector3, color: number): void;
@@ -33,10 +35,9 @@ const GUNNER_RADIUS = 0.75;
 const SHELL_SPEED = 11;
 // Track the UFO, then hold a locked line long enough to read before the shell leaves.
 const TRACK = 0.85, LOCK = 0.4;
-const clampField = (x: number) => THREE.MathUtils.clamp(x, -7, 7);
 const isGunner = (e: FieldEntity) => e.animal === 'gunner';
 
-export function createThreats({ scene, kit, miniature, audio, player, hover, entities, spawnGunner, damage, burst, status }: ThreatOptions) {
+export function createThreats({ scene, kit, miniature, audio, player, hover, entities, clamp, spawnGunner, damage, burst, status }: ThreatOptions) {
   const root = new THREE.Group();
   scene.add(root);
   function group() {
@@ -133,7 +134,7 @@ export function createThreats({ scene, kit, miniature, audio, player, hover, ent
       const p = e.mesh.position;
       const cross = horizontal ? p.z - z : p.x - x;
       const ahead = horizontal ? p.x - x : p.z - z;
-      if (e.type === 'cow') {
+      if (e.animal) {
         if (Math.abs(cross) > 2 || Math.abs(ahead) > 1.65) continue;
         // At a field edge, send the herd back into the pasture.
         const edge = horizontal ? z : x;
@@ -141,8 +142,8 @@ export function createThreats({ scene, kit, miniature, audio, player, hover, ent
         e.heading = horizontal ? (away > 0 ? 0 : Math.PI) : away * Math.PI / 2;
         e.scatter = Math.max(e.scatter, 1.2);
       } else if (Math.abs(cross) < 1.05 && Math.abs(ahead) < 1.2) {
-        if (horizontal) p.x = clampField(x + sign * 1.15);
-        else p.z = clampField(z + sign * 1.15);
+        if (horizontal) p.x = clamp(x + sign * 1.15);
+        else p.z = clamp(z + sign * 1.15);
         e.heading = (horizontal ? Math.PI / 2 : 0) + (sign < 0 ? Math.PI : 0);
       }
     }
@@ -200,7 +201,7 @@ export function createThreats({ scene, kit, miniature, audio, player, hover, ent
   let aim: FieldEntity | undefined, warned: FieldEntity | undefined;
   let spawnWait = 0, charge = 0, reload = 0;
   function cancelAim() {
-    if (aim) aim.mesh.userData.aiming = false;
+    if (aim) aim.aiming = false;
     aim = undefined;
     sight.visible = false;
   }
@@ -226,7 +227,7 @@ export function createThreats({ scene, kit, miniature, audio, player, hover, ent
     if (!aim) {
       if ((reload -= dt) > 0) return;
       aim = cow;
-      cow.mesh.userData.aiming = true;
+      cow.aiming = true;
       charge = 0;
       sight.visible = true;
       if (warned !== cow) status('Bazooka cow! Sidestep when its aim line turns gold.');

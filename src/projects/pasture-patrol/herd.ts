@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildMiniature, type StudioBuilder } from '../../lib/miniatures';
+import { buildMiniature, type MiniatureId, type StudioBuilder } from '../../lib/miniatures';
 
 export type Animal = 'cow' | 'chicken' | 'sheep' | 'goat' | 'pig' | 'gunner';
 export const POINTS: Record<Animal, number> = { cow: 1, chicken: 1, sheep: 1, goat: 2, pig: 3, gunner: 4 };
@@ -15,8 +15,8 @@ export function chooseAnimal(level: number): Animal {
 
 export function createHerdModels(studio: StudioBuilder) {
   // Custom miniature geometries belong to the studio; build each once, even across restarts.
-  const templates = new Map<string, THREE.Group>();
-  function miniature(id: string) {
+  const templates = new Map<MiniatureId, THREE.Group>();
+  function miniature(id: MiniatureId) {
     let template = templates.get(id);
     if (!template) {
       template = buildMiniature(studio, id);

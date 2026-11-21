@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export interface BoardBounds {
+interface BoardBounds {
   minX: number;
   maxX: number;
   minZ: number;
@@ -21,12 +21,14 @@ export interface BoardCameraOptions {
   offset: THREE.Vector3;
   pad: { x: number; z: number };
   maxZoom: number;
+  /** HUD elements whose size feeds insets(). */
+  chrome: Element[];
   insets(width: number, height: number): Insets;
   signal: AbortSignal;
-  onTap(clientX: number, clientY: number, event: PointerEvent): void;
+  onTap(clientX: number, clientY: number): void;
   onHover?(clientX: number, clientY: number, event: PointerEvent): void;
   onPress?(event: PointerEvent): void;
-  onRelease?(event: PointerEvent): void;
+  onRelease?(): void;
   onZoomedChange(zoomed: boolean): void;
 }
 
@@ -195,11 +197,11 @@ export function createBoardCamera(options: BoardCameraOptions): BoardCamera {
   );
 
   function release(e: PointerEvent) {
-    options.onRelease?.(e);
+    options.onRelease?.();
     const wasSingle = activePointers.size === 1;
     if (!activePointers.delete(e.pointerId)) return;
     if (e.type === 'pointerup' && wasSingle && !dragged && e.button !== 2) {
-      options.onTap(e.clientX, e.clientY, e);
+      options.onTap(e.clientX, e.clientY);
     }
     if (activePointers.size === 1) {
       for (const remaining of activePointers.values()) {
@@ -224,6 +226,7 @@ export function createBoardCamera(options: BoardCameraOptions): BoardCamera {
   if (!signal.aborted) {
     const observer = new ResizeObserver(refit);
     observer.observe(viewport);
+    for (const el of options.chrome) observer.observe(el);
     signal.addEventListener('abort', () => observer.disconnect(), { once: true });
   }
 

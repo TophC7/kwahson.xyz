@@ -46,12 +46,12 @@
         </div>
       {:catch}
         <div class="grid h-full place-items-center p-6">
-          <div class="max-w-sm rounded-md border border-[rgba(213,215,207,0.12)] bg-surface p-6 text-center">
+          <div class="max-w-sm rounded-md border border-ink/12 bg-surface p-6 text-center">
             <p class="font-mono text-xs text-ochre uppercase">Load Error</p>
             <p class="mt-2 text-sm text-ink-muted">Could not load this project.</p>
             <a
               href="/"
-              class="mt-4 inline-block rounded-sm border border-[rgba(213,215,207,0.14)] bg-surface-raised px-3 py-1.5 font-mono text-xs text-ink hover:border-sage/40"
+              class="mt-4 inline-block rounded-sm border border-ink/14 bg-surface-raised px-3 py-1.5 font-mono text-xs text-ink hover:border-sage/40"
             >
               Back home
             </a>
@@ -60,7 +60,7 @@
       {/await}
     {:else}
       <div class="bg-field-grid grid h-full place-items-center p-6">
-        <div class="max-w-sm rounded-md border border-[rgba(213,215,207,0.1)] bg-surface p-7 text-center">
+        <div class="max-w-sm rounded-md border border-ink/10 bg-surface p-7 text-center">
           <p class="font-mono text-[11px] tracking-widest text-ink-dim uppercase">404 // Nothing here</p>
           <h1 class="mt-2 text-lg font-semibold text-ink">Nothing lives at /{router.slug}</h1>
           <p class="mt-2 text-sm text-ink-muted">
@@ -68,7 +68,7 @@
           </p>
           <a
             href="/"
-            class="mt-5 inline-flex items-center gap-1.5 rounded-sm border border-[rgba(213,215,207,0.14)] bg-surface-raised px-3.5 py-1.5 font-mono text-xs text-ink transition-colors hover:border-sage/40"
+            class="mt-5 inline-flex items-center gap-1.5 rounded-sm border border-ink/14 bg-surface-raised px-3.5 py-1.5 font-mono text-xs text-ink transition-colors hover:border-sage/40"
           >
             <Icon icon={ArrowLeft02Icon} size={13} strokeWidth={1.9} />
             <span>Back to kwahson.xyz</span>

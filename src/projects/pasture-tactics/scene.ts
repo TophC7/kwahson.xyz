@@ -1,29 +1,31 @@
 import * as THREE from 'three';
+import { isGameKey } from '../../lib/hotkeys';
+import { scoped } from '../../lib/scope';
 import { createBoardCamera, type Insets } from '../../lib/boardCamera';
 import { createBursts } from '../../lib/bursts';
-import { createStudioBuilder, createStudioStage, frameModel } from '../../lib/miniatures';
-import { createPastureKit, PASTURE_HEMI_SKY, PASTURE_HEMI_GROUND, PASTURE_SUN_COLOR } from '../../lib/pastureKit';
-import { buildPastureTable } from '../../lib/pastureTable';
+import { buildMiniature, createStudioBuilder, createStudioStage, frameModel, type MiniatureId } from '../../lib/miniatures';
+import { createPastureKit } from '../../lib/pastureKit';
+import { addTableLights, buildPastureTable } from '../../lib/pastureTable';
 import { randomSeed } from '../../lib/rng';
 import { createTacticsAudio } from './audio';
 import { COLS, ROWS, HEROES, ENEMIES, ITEMS, PROPS, type Difficulty, type HeroKind, type ItemKind } from './data';
-import { buildTacticsModel, GALLERY_ITEMS } from './models';
+import { GALLERY_ITEMS } from './models';
 import { createPlayback, type EntityVisual } from './playback';
 import {
   apply, danger, enemyReach, entityAt, isHero, itemTargets, maxHp, moveTargets, skillTargets, stars, teamOf, tileIndex, tileOf,
   type Action, type Entity, type GameState, type Hero, type Tile,
 } from './rules';
-import { decodeSave, encodeSave, readStoredCode, storeCode } from './save';
+import { decodeSave, encodeSave } from './save';
 import { createGame } from './scenario';
 
-export interface HeroHud {
+interface HeroHud {
   id: number; kind: HeroKind; hp: number; shield: boolean;
   canMove: boolean; canAct: boolean; alive: boolean;
 }
-export interface ItemHud { kind: ItemKind; charges: number; usable: boolean }
-export interface SelectedHud {
+interface ItemHud { kind: ItemKind; charges: number; usable: boolean }
+interface SelectedHud {
   id: number; team: 'herd' | 'sky' | 'neutral'; isHero: boolean; name: string; hp: number | null;
-  maxHp: number | null; move: number | null; abilityName: string; abilityDesc: string; canMove: boolean; canSkill: boolean;
+  maxHp: number | null; move: number | null; abilityName: string; abilityDesc: string; canSkill: boolean;
 }
 export interface TacticsHudState {
   seed: number; difficulty: Difficulty; objective: 'hold' | 'rout'; turn: number; power: number;
@@ -39,7 +41,7 @@ export interface TacticsController {
   chooseSkill(): void; chooseItem(kind: ItemKind): void; wait(): void;
   confirm(): void; cancel(): void; undo(): void; endTurn(): void;
   newFight(difficulty: Difficulty, seed?: number): void; retry(): void;
-  toggleMute(): void; toggleDanger(): void; resetView(): void; refit(): void;
+  toggleMute(): void; toggleDanger(): void; resetView(): void;
   readonly portraits: Record<string, string>;
   destroy(): void;
 }
@@ -48,6 +50,8 @@ const TILE = 1.4, GROUND = 0.09;
 const INFO = { ...HEROES, ...ENEMIES, ...PROPS };
 const tileCenter = (x: number, y: number) => new THREE.Vector3((x - (COLS - 1) / 2) * TILE, GROUND, (y - (ROWS - 1) / 2) * TILE);
 const DANGER_KEY = 'pasture-tactics-danger';
+const SAVE_KEY = 'pasture-tactics-save';
+const storedCode = () => { try { return localStorage.getItem(SAVE_KEY); } catch { return null; } };
 // The desktop three-quarter view shows model silhouettes; portrait faces the grid square-on
 // from higher up so the eight columns fit and the nine rows remain easy to tap.
 const CAM_DIST = 24;
@@ -82,49 +86,29 @@ function removeSprite(sprite: THREE.Sprite) {
   sprite.material.dispose();
 }
 
-export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }: {
-  viewport: HTMLElement; onState: (patch: Partial<TacticsHudState>) => void; insets: () => Insets; onEndTurnKey: () => void;
+export function mountPastureTactics({ viewport, onState, insets, chrome, onEndTurnKey }: {
+  viewport: HTMLElement; onState: (patch: Partial<TacticsHudState>) => void; insets: () => Insets; chrome: Element[]; onEndTurnKey: () => void;
 }): TacticsController {
-  const cleanups: (() => void)[] = [];
-  const abort = new AbortController(), { signal } = abort;
-  function destroy() {
-    if (signal.aborted) return;
-    abort.abort();
-    for (const fn of cleanups.reverse()) fn();
-    cleanups.length = 0;
-  }
-  try {
+  return scoped(({ signal, add, dispose }) => {
     // ponytail: the viewing angle is fixed at mount; rotating the device keeps it until reload.
     const { offset: camOffset, yaw } = cameraFor(viewport.clientWidth, viewport.clientHeight);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setClearColor(0, 0);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     viewport.appendChild(renderer.domElement);
-    cleanups.push(() => { renderer.dispose(); renderer.domElement.remove(); });
+    add(() => { renderer.dispose(); renderer.domElement.remove(); });
     const kit = createPastureKit(), studio = createStudioBuilder(kit), audio = createTacticsAudio();
-    cleanups.push(kit.dispose, studio.dispose, audio.destroy);
+    add(kit.dispose, studio.dispose, audio.destroy);
     const scene = new THREE.Scene(), table = new THREE.Group(), pieces = new THREE.Group(), effects = new THREE.Group();
-    scene.add(table, pieces, effects, new THREE.HemisphereLight(PASTURE_HEMI_SKY, PASTURE_HEMI_GROUND, 2.05));
-    const sun = new THREE.DirectionalLight(PASTURE_SUN_COLOR, 2.4);
-    sun.position.set(-9, 22, 10); sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { near: 2, far: 48, left: -12, right: 12, top: 12, bottom: -12 });
-    sun.shadow.camera.updateProjectionMatrix();
-    sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.025;
-    const fill = new THREE.DirectionalLight(0xd8e8d6, 0.55);
-    fill.position.set(10, 12, -8);
-    scene.add(sun, fill);
-    cleanups.push(() => sun.shadow.dispose());
+    scene.add(table, pieces, effects);
+    add(addTableLights(scene, 10));
     buildPastureTable(kit, table, { cx: 0, cz: 0, spanX: COLS * TILE + 3.2, spanZ: ROWS * TILE + 1.2, checker: false });
-    const templates = new Map<string, THREE.Group>();
-    function modelFor(id: string) {
+    const templates = new Map<MiniatureId, THREE.Group>();
+    function modelFor(id: MiniatureId) {
       let template = templates.get(id);
-      if (!template) { template = buildTacticsModel(studio, id); templates.set(id, template); }
+      if (!template) { template = buildMiniature(studio, id); templates.set(id, template); }
       return template.clone();
     }
-    function sizedModel(id: string, width: number, maxHeight = Infinity) {
+    function sizedModel(id: MiniatureId, width: number, maxHeight = Infinity) {
       const child = modelFor(id);
       child.rotation.set(0, 0, 0);
       const box = new THREE.Box3().setFromObject(child), size = box.getSize(new THREE.Vector3());
@@ -145,7 +129,7 @@ export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }:
     const ringGeo = studio.track(new THREE.RingGeometry(0.41, 0.47, 32).rotateX(-Math.PI / 2));
     function overlayMat(color: number, opacity: number) {
       const m = new THREE.MeshBasicMaterial({ color, opacity, transparent: true, depthWrite: false });
-      cleanups.push(() => m.dispose()); return m;
+      add(() => m.dispose()); return m;
     }
     const frameMat = overlayMat(0xd9614f, 0.85), ringMat = overlayMat(0x5eaea4, 0.85);
     // Red tints over green grass muddy to brown, so threat reads as hazard stripes instead of a colour wash.
@@ -153,7 +137,7 @@ export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }:
     const sctx = stripes.getContext('2d')!; sctx.strokeStyle = '#ff4a3a'; sctx.lineWidth = 9;
     for (let s = -64; s <= 128; s += 21) { sctx.beginPath(); sctx.moveTo(s, 64); sctx.lineTo(s + 64, 0); sctx.stroke(); }
     const hatchMap = new THREE.CanvasTexture(stripes); hatchMap.colorSpace = THREE.SRGBColorSpace;
-    cleanups.push(() => hatchMap.dispose());
+    add(() => hatchMap.dispose());
     const overlays = Array.from({ length: COLS * ROWS }, (_, i) => {
       const { x, y } = tileOf(i), pos = tileCenter(x, y);
       kit.part(table, 'box', (x + y) % 2 ? 0x85b45c : 0x8dbd62, [TILE - 0.05, 0.02, TILE - 0.05], [pos.x, 0.085, pos.z]).receiveShadow = true;
@@ -169,7 +153,7 @@ export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }:
     const hitGeo = studio.track(new THREE.BoxGeometry(1, 1, 1)), hitMat = new THREE.MeshBasicMaterial({ visible: false });
     // Faceted low-poly shell, unit radius; each visual scales it to hug its model.
     const bubbleGeo = studio.track(new THREE.IcosahedronGeometry(1, 1));
-    cleanups.push(() => hitMat.dispose());
+    add(() => hitMat.dispose());
     const visuals = new Map<number, EntityVisual>();
     const hits: THREE.Mesh[] = [], eggs = new Map<number, THREE.Group>();
     const floats: { sprite: THREE.Sprite; life: number }[] = [];
@@ -291,7 +275,7 @@ export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }:
       effects.add(sprite); floats.push({ sprite, life: 0.7 });
     }
     function clearFloats() { for (const { sprite } of floats) removeSprite(sprite); floats.length = 0; }
-    cleanups.push(() => { for (const id of visuals.keys()) removeEntity(id); clearFloats(); });
+    add(() => { for (const id of visuals.keys()) removeEntity(id); clearFloats(); });
 
     let state: GameState, roster: Hero[] = [], status = '';
     let selectedId: number | null = null, mode: TacticsHudState['mode'] = 'idle', pendingItem: ItemKind | null = null;
@@ -311,7 +295,7 @@ export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }:
         else { hinted = true; setStatus('Hold the screen edge to fast-forward'); }
       },
     }, reduceMotion);
-    cleanups.push(() => playback.cancel());
+    add(() => playback.cancel());
     function setStatus(text: string) { status = text; onState({ status }); }
     const restingStatus = () => selectedId === null ? 'Tap a herd animal to give orders' : INFO[current()!.kind].name;
     function current() { return state.entities.find(e => e.id === selectedId); }
@@ -327,7 +311,7 @@ export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }:
         id: e.id, team: teamOf(e), isHero: isHero(e), name: info.name, hp: maxHp(e) === null ? null : e.hp, maxHp: maxHp(e),
         move: 'move' in info ? info.move : null, abilityName: ability?.name ?? (maxHp(e) === null ? 'Obstacle' : 'Cover'),
         abilityDesc: ability?.desc ?? (e.kind === 'barn' ? 'Defend the barn.' : maxHp(e) === null ? 'Cannot be moved or damaged.' : 'Blocks movement and can take damage.'),
-        canMove: isHero(e) && moveTargets(state, e.id).length > 0, canSkill: isHero(e) && skillTargets(state, e.id).length > 0,
+        canSkill: isHero(e) && skillTargets(state, e.id).length > 0,
       } : null;
       const items = state.items.map(({ kind, charges }): ItemHud => ({ kind, charges,
         usable: !!e && isHero(e) && itemTargets(state, e.id, kind).length > 0 }));
@@ -471,7 +455,8 @@ export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }:
       else cancel();
     }
     function save() {
-      code = encodeSave(state); storeCode(code);
+      code = encodeSave(state);
+      try { localStorage.setItem(SAVE_KEY, code); } catch { /* Storage is optional. */ }
       history.replaceState(history.state, '', location.pathname + location.search + '#g=' + code);
     }
     let fastTimer: number | undefined;
@@ -483,9 +468,9 @@ export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }:
       if (!busy || fastTimer !== undefined) return;
       fastTimer = window.setTimeout(() => { if (busy) { playback.timeScale = 3; onState({ fastForward: true }); } }, 180);
     }
-    cleanups.push(releaseFast);
+    add(releaseFast);
     function interrupt() {
-      generation++; playback.cancel(); releaseFast(); busy = enemyPhase = false; clearFloats(); bursts.update(1);
+      generation++; playback.cancel(); releaseFast(); busy = enemyPhase = false; clearFloats(); bursts.clear();
     }
     async function commit(action: Action) {
       if (!ready()) return;
@@ -531,7 +516,7 @@ export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }:
     }
     let pressedBusy = false;
     // Portrait deliberately crops the decorative border to keep the playable tiles tappable.
-    const cam = createBoardCamera({ viewport, renderer, insets, signal, offset: camOffset, pad: { x: 0.25, z: 0.35 }, maxZoom: 2.2,
+    const cam = createBoardCamera({ viewport, renderer, insets, chrome, signal, offset: camOffset, pad: { x: 0.25, z: 0.35 }, maxZoom: 2.2,
       onTap: (x, y) => { if (!pressedBusy || busy) tap(pick(x, y)); },
       onHover(x, y, event) {
         if (event.pointerType !== 'mouse' || busy) return;
@@ -569,10 +554,9 @@ export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }:
         load(s, s, 'This link is from an older version, so the fight restarts');
       } else load(decoded, createGame(decoded.seed, decoded.difficulty), 'Fight resumed');
     }
-    window.addEventListener('hashchange', () => { const next = hashCode() ?? readStoredCode(); if (next !== code) resume(next); }, { signal });
+    window.addEventListener('hashchange', () => { const next = hashCode() ?? storedCode(); if (next !== code) resume(next); }, { signal });
     window.addEventListener('keydown', e => {
-      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement
-        || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) return;
+      if (!isGameKey(e)) return;
       if (e.code === 'Space' && busy) { e.preventDefault(); armFast(); return; }
       if (e.repeat) return;
       switch (e.key.toLowerCase()) {
@@ -596,9 +580,8 @@ export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }:
     }, { signal });
     window.addEventListener('keyup', e => { if (e.code === 'Space') releaseFast(); }, { signal });
     window.addEventListener('blur', releaseFast, { signal });
-    document.addEventListener('visibilitychange', () => { audio.setHidden(document.hidden); if (document.hidden) releaseFast(); }, { signal });
-    audio.setHidden(document.hidden);
-    resume(hashCode() ?? readStoredCode());
+    document.addEventListener('visibilitychange', () => { if (document.hidden) releaseFast(); }, { signal });
+    resume(hashCode() ?? storedCode());
     let last = performance.now(), raf: number;
     function tick(now: number) {
       const dt = Math.min(0.06, (now - last) / 1000); last = now;
@@ -613,10 +596,10 @@ export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }:
       ringMat.opacity = 0.75 + 0.2 * wave;
       renderer.render(scene, cam.camera); raf = requestAnimationFrame(tick);
     }
-    raf = requestAnimationFrame(tick); cleanups.push(() => cancelAnimationFrame(raf));
+    raf = requestAnimationFrame(tick); add(() => cancelAnimationFrame(raf));
     return { select, chooseSkill: () => choose('skill'), chooseItem: kind => choose('item', kind),
       wait() { const e = current(); if (ready() && e && isHero(e) && !e.acted) void commit({ type: 'wait', id: e.id }); },
       confirm, cancel, undo, endTurn: () => { void commit({ type: 'endTurn' }); }, newFight, retry: () => newFight(state.difficulty, state.seed),
-      toggleMute, toggleDanger, resetView() { cam.resetView(); audio.play('uiClick'); }, refit: cam.refit, portraits, destroy };
-  } catch (error) { destroy(); throw error; }
+      toggleMute, toggleDanger, resetView() { cam.resetView(); audio.play('uiClick'); }, portraits, destroy: dispose };
+  });
 }

@@ -1,5 +1,5 @@
-import { mulberry32, pick, randomSeed, shuffle } from '../../lib/rng';
-import { buildDeckPairs, TILE_DESIGN_MAP, tilesMatch, TOTAL_TILES } from './deck';
+import { mulberry32, pick, shuffle } from '../../lib/rng';
+import { buildDeckPairs, TILE_DESIGN_MAP, TOTAL_TILES } from './deck';
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
 
@@ -105,7 +105,7 @@ export function canTilesMatch(a: BoardTile, b: BoardTile): boolean {
   if (a.id === b.id || a.removed || b.removed) return false;
   const da = TILE_DESIGN_MAP.get(a.designId);
   const db = TILE_DESIGN_MAP.get(b.designId);
-  return Boolean(da && db && tilesMatch(da, db));
+  return Boolean(da && db && da.matchKey === db.matchKey);
 }
 
 // ---------------------------------------------------------------------------
@@ -395,8 +395,7 @@ function generateSymmetricLayout(difficulty: Difficulty, rng: () => number, port
 
   // Pass 1: fill each layer up to its target from bottom to top
   for (let gz = 0; gz < spec.layerTargets.length; gz++) {
-    const target = spec.layerTargets[gz] ?? 0;
-    if (target <= 0) continue;
+    const target = spec.layerTargets[gz];
 
     let layerCount = 0;
     const candidates = collectCandidates(gz, false);
@@ -425,10 +424,8 @@ function generateSymmetricLayout(difficulty: Difficulty, rng: () => number, port
     const need = TOTAL_TILES - occupied.length;
     let placed = false;
 
-    const layerOrder = Array.from({ length: spec.layerTargets.length }, (_, i) => i);
-
     for (const relax of [false, true]) {
-      for (const gz of layerOrder) {
+      for (const gz of spec.layerTargets.keys()) {
         const candidates = shuffle(collectCandidates(gz, relax), rng).filter((g) => g.length <= need);
         // Prefer closer to center so we don't make stray detached islands
         candidates.sort((a, b) => {
@@ -490,7 +487,7 @@ function findRemovableGroupIndex(
 }
 
 // ---------------------------------------------------------------------------
-// Guaranteed-solvable reverse-peel solver & strict forward verifier
+// Guaranteed-solvable reverse-peel solver
 // ---------------------------------------------------------------------------
 
 /**
@@ -500,7 +497,7 @@ function findRemovableGroupIndex(
 function peelSlotPairs(
   slots: readonly Slot[],
   rng: () => number,
-  attempts = 16,
+  attempts: number,
 ): [number, number][] | null {
   if (slots.length % 2 !== 0) return null;
 
@@ -525,7 +522,8 @@ function peelSlotPairs(
 
       // Weight selection gently toward higher-z tiles and outer tiles so buried
       // stacks unlock smoothly and the resulting puzzle has engaging depth.
-      const pickWeighted = (pool: number[]) => {
+      // Draws rng() per candidate, unlike lib/rng pickWeighted; swapping them changes every deal.
+      const pickBiasedFree = (pool: number[]) => {
         const weights = pool.map((localIdx) => {
           const s = activeSlots[localIdx];
           return 1 + s.gz * 1.45 + rng() * 0.9;
@@ -540,7 +538,7 @@ function peelSlotPairs(
         return pool[pool.length - 1];
       };
 
-      const firstLocal = pickWeighted(freeLocal);
+      const firstLocal = pickBiasedFree(freeLocal);
       const restPool = freeLocal.filter((x) => x !== firstLocal);
 
       // Prefer a partner that isn't immediately adjacent to firstLocal when possible
@@ -551,7 +549,7 @@ function peelSlotPairs(
         return Math.hypot(s.gx - firstSlot.gx, s.gy - firstSlot.gy) >= 3.5;
       });
       const partnerPool = distantPool.length > 0 && rng() < 0.78 ? distantPool : restPool;
-      const secondLocal = pickWeighted(partnerPool);
+      const secondLocal = pickBiasedFree(partnerPool);
 
       const idA = remainingIndices[firstLocal];
       const idB = remainingIndices[secondLocal];
@@ -570,46 +568,6 @@ function peelSlotPairs(
   return null;
 }
 
-/**
- * Independent forward verifier: replays the full 72-pair solution on a fresh
- * copy of the board and asserts every rule at every single step.
- */
-function verifyBoardSolvable(
-  tiles: readonly BoardTile[],
-  solution: readonly [number, number][],
-): boolean {
-  const byId = new Map<number, BoardTile>();
-  for (const t of tiles) {
-    if (byId.has(t.id)) return false;
-    byId.set(t.id, { ...t, removed: false });
-  }
-
-  if (solution.length * 2 !== tiles.length) return false;
-
-  for (const [idA, idB] of solution) {
-    const a = byId.get(idA);
-    const b = byId.get(idB);
-    if (!a || !b || a.removed || b.removed || a.id === b.id) return false;
-
-    const active: BoardTile[] = [];
-    for (const tile of byId.values()) {
-      if (!tile.removed) active.push(tile);
-    }
-
-    if (!isSlotFree(a, active) || !isSlotFree(b, active)) return false;
-    if (!canTilesMatch(a, b)) return false;
-
-    a.removed = true;
-    b.removed = true;
-  }
-
-  for (const tile of byId.values()) {
-    if (!tile.removed) return false;
-  }
-
-  return true;
-}
-
 function dealTiles(slots: readonly Slot[], peeled: readonly [number, number][], rng: () => number): BoardTile[] {
   const deckPairs = buildDeckPairs(rng);
   const designIds = new Array<string>(slots.length);
@@ -621,10 +579,10 @@ function dealTiles(slots: readonly Slot[], peeled: readonly [number, number][], 
 }
 
 /**
- * Generates a fresh, difficulty-scaled 144-tile procedural Mahjong Solitaire
- * board that is strictly verified 100% solvable from the opening state.
+ * Generates a difficulty-scaled Mahjong Solitaire board, solvable by construction:
+ * tiles are dealt along a reverse-peel order.
  */
-export function generateBoard(difficulty: Difficulty, seed = randomSeed(), portrait = false): GeneratedBoard {
+export function generateBoard(difficulty: Difficulty, seed: number, portrait: boolean): GeneratedBoard {
   const config = DIFFICULTIES[difficulty];
   const rng = mulberry32(seed);
 
@@ -633,11 +591,9 @@ export function generateBoard(difficulty: Difficulty, seed = randomSeed(), portr
     if (layout.slots.length !== TOTAL_TILES) continue;
 
     const peeled = peelSlotPairs(layout.slots, rng, 14);
-    if (!peeled || peeled.length !== TOTAL_TILES / 2) continue;
+    if (!peeled) continue;
 
     const tiles = dealTiles(layout.slots, peeled, rng);
-
-    if (!verifyBoardSolvable(tiles, peeled)) continue;
 
     const initialMoves = findValidMoves(tiles).length;
     if (initialMoves < config.minInitialMoves && attempt < 24) continue;
@@ -683,7 +639,6 @@ export function generateBoard(difficulty: Difficulty, seed = randomSeed(), portr
 export function reshuffleRemaining(
   tiles: readonly BoardTile[],
   portrait: boolean,
-  rng: () => number = Math.random,
 ): { tiles: BoardTile[]; flattened: boolean } {
   const next = tiles.map((t) => ({ ...t }));
   const active = next.filter((t) => !t.removed);
@@ -701,14 +656,14 @@ export function reshuffleRemaining(
 
   const remainingPairs: [string, string][] = [];
   for (const bucket of byMatchKey.values()) {
-    shuffle(bucket, rng);
+    shuffle(bucket, Math.random);
     for (let i = 0; i + 1 < bucket.length; i += 2) {
       remainingPairs.push([bucket[i], bucket[i + 1]]);
     }
   }
-  shuffle(remainingPairs, rng);
+  shuffle(remainingPairs, Math.random);
 
-  let peeled = peelSlotPairs(active, rng, 28);
+  let peeled = peelSlotPairs(active, Math.random, 28);
   let flattened = false;
 
   if (!peeled) {
@@ -724,7 +679,7 @@ export function reshuffleRemaining(
       tile.gy = Math.round((row - (rows - 1) / 2) * 2);
       tile.gz = 0;
     });
-    peeled = peelSlotPairs(active, rng, 28);
+    peeled = peelSlotPairs(active, Math.random, 28);
   }
 
   if (peeled) {

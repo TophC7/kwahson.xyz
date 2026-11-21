@@ -1,3 +1,4 @@
+import type { MiniatureId } from '../../lib/miniatures';
 export const COLS = 8;
 export const ROWS = 9;
 export const POWER_PER_TURN = 3;
@@ -8,7 +9,9 @@ export const CROP_COUNT = 4;
 // Mend can heal this far past max HP; the excess lasts until the next player turn.
 export const OVERHEAL = 2;
 
-export type Difficulty = 'easy' | 'medium' | 'hard';
+// Saves encode difficulties by their position here.
+export const DIFFICULTY_LEVELS = ['easy', 'medium', 'hard'] as const;
+export type Difficulty = typeof DIFFICULTY_LEVELS[number];
 export const THREAT: Record<Difficulty, number> = { easy: 0.9, medium: 1.2, hard: 1.5 };
 export const SALT: Record<Difficulty, number> = { easy: 0x51ed, medium: 0xa3c7, hard: 0xf00d };
 export const DIFFICULTIES: Record<Difficulty, { label: string; tagline: string }> = {
@@ -32,7 +35,7 @@ export type EntityKind = HeroKind | EnemyKind | PropKind;
 // Saves encode kinds by their position here.
 export const ENTITY_KINDS: EntityKind[] = [...HERO_KINDS, ...ENEMY_KINDS, ...PROP_KINDS];
 
-export interface CostParts {
+interface CostParts {
   hp?: number;
   move?: number;
   dmg?: number;
@@ -73,7 +76,7 @@ export function unitCost(u: Unit): number {
 
 interface Unit {
   name: string;
-  model: string;
+  model: MiniatureId;
   /** Largest model dimension on the board, in tiles. */
   size: number;
   hp: number;
@@ -182,7 +185,7 @@ export const ENEMIES: Record<EnemyKind, EnemyData> = {
   },
 };
 
-export const PROPS: Record<PropKind, { name: string; model: string; hp: number | null; pushable: boolean }> = {
+export const PROPS: Record<PropKind, { name: string; model: MiniatureId; hp: number | null; pushable: boolean }> = {
   rock: { name: 'Rock', model: 'rock', hp: null, pushable: false },
   stump: { name: 'Stump', model: 'stump', hp: null, pushable: false },
   silo: { name: 'Silo', model: 'silo', hp: null, pushable: false },
@@ -196,7 +199,7 @@ export const PROPS: Record<PropKind, { name: string; model: string; hp: number |
 
 interface Item {
   name: string;
-  model: string;
+  model: MiniatureId;
   power: number;
   charges: number;
   desc: string;

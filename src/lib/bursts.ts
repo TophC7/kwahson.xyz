@@ -1,20 +1,22 @@
 import * as THREE from 'three';
 import type { PastureKit } from './pastureKit';
 
+const MAX_LIFE = 0.8;
+
 export interface Bursts {
   spawn(pos: THREE.Vector3, color: number, count?: number): void;
   update(dt: number): void;
+  clear(): void;
 }
 
 interface BurstParticle {
   mesh: THREE.Mesh;
   velocity: THREE.Vector3;
-  spin: THREE.Vector3;
+  spin: THREE.Vector2;
   life: number;
-  maxLife: number;
 }
 
-export function createBursts(kit: PastureKit, parent: THREE.Group): Bursts {
+export function createBursts(kit: PastureKit, parent: THREE.Object3D): Bursts {
   const particles: BurstParticle[] = [];
 
   function spawn(pos: THREE.Vector3, colorHex: number, count = 10) {
@@ -28,9 +30,8 @@ export function createBursts(kit: PastureKit, parent: THREE.Group): Bursts {
           1.8 + Math.random() * 2.4,
           (Math.random() - 0.5) * 3.4,
         ),
-        spin: new THREE.Vector3(Math.random() * 6, Math.random() * 6, Math.random() * 6),
+        spin: new THREE.Vector2(Math.random() * 6, Math.random() * 6),
         life: 0.55 + Math.random() * 0.25,
-        maxLife: 0.8,
       });
     }
   }
@@ -48,10 +49,15 @@ export function createBursts(kit: PastureKit, parent: THREE.Group): Bursts {
       p.mesh.position.addScaledVector(p.velocity, dt);
       p.mesh.rotation.x += p.spin.x * dt;
       p.mesh.rotation.y += p.spin.y * dt;
-      const t = p.life / p.maxLife;
+      const t = p.life / MAX_LIFE;
       p.mesh.scale.setScalar(Math.max(0.001, t * 0.14));
     }
   }
 
-  return { spawn, update };
+  function clear() {
+    for (const particle of particles) parent.remove(particle.mesh);
+    particles.length = 0;
+  }
+
+  return { spawn, update, clear };
 }

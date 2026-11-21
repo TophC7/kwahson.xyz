@@ -9,7 +9,7 @@ export interface Entity extends Tile {
   id: number; kind: EntityKind; hp: number; shield: boolean; moved: boolean; acted: boolean;
   placed: boolean; dir: Dir;
 }
-export interface Wave { turn: number; kind: EnemyKind; x: number }
+interface Wave { turn: number; kind: EnemyKind; x: number }
 export interface GameState {
   seed: number; difficulty: Difficulty; objective: 'hold' | 'rout'; turn: number; power: number;
   phase: 'player' | 'won' | 'lost'; entities: Entity[]; traps: Tile[];
@@ -23,7 +23,7 @@ export type Action =
   | { type: 'endTurn' };
 export type GameEvent =
   | { t: 'move'; id: number; path: Tile[]; style: 'walk' | 'fly' | 'charge' | 'leap' | 'slide' }
-  | { t: 'skill'; id: number; name: string; dir: Dir; x: number; y: number }
+  | { t: 'skill'; id: number; dir: Dir; x: number; y: number }
   | { t: 'item'; id: number; item: ItemKind; x: number; y: number }
   | { t: 'damage'; id: number; amount: number; hp: number }
   | { t: 'heal'; id: number; amount: number; hp: number }
@@ -36,7 +36,7 @@ export type GameEvent =
   | { t: 'split'; id: number; into: Entity[] }
   | { t: 'egg'; x: number; y: number; on: boolean }
   | { t: 'eggHit'; x: number; y: number; id: number }
-  | { t: 'phase'; phase: 'enemy' | 'player'; turn: number }
+  | { t: 'phase'; phase: 'enemy' | 'player' }
   | { t: 'end'; result: 'won' | 'lost' };
 
 export type Hero = Entity & { kind: HeroKind };
@@ -260,7 +260,7 @@ function crossRow(p: Tile, d: Dir): Tile[] {
 function useSkill(r: Resolution, e: Hero, p: Tile) {
   const d = facing(e, p), t = entityAt(r.state, p.x, p.y)!;
   e.dir = d;
-  r.events.push({ t: 'skill', id: e.id, name: HEROES[e.kind].skill.name, dir: d, x: p.x, y: p.y });
+  r.events.push({ t: 'skill', id: e.id, dir: d, x: p.x, y: p.y });
   switch (e.kind) {
     case 'cow': displace(r, t, d); break;
     case 'pig': damage(r, t, 2); break;
@@ -402,9 +402,8 @@ export function danger(state: GameState): number[] {
 function attack(r: Resolution, e: Enemy, d: Dir, board: Board) {
   const tiles = attackTiles(e.kind, e, d, board);
   const target = e.kind === 'lobber' ? tiles[0] : tiles[tiles.length - 1];
-  const { name } = ENEMIES[e.kind].attack;
   e.dir = d;
-  r.events.push({ t: 'skill', id: e.id, name, dir: d, x: target.x, y: target.y });
+  r.events.push({ t: 'skill', id: e.id, dir: d, x: target.x, y: target.y });
   for (const q of tiles) {
     const hit = board[tileIndex(q)];
     if (!hit) continue;
@@ -525,7 +524,7 @@ function checkResult(r: Resolution, checkpoint: 'action' | 'attacks' | 'landings
 }
 function endTurn(r: Resolution) {
   const s = r.state;
-  r.events.push({ t: 'phase', phase: 'enemy', turn: s.turn });
+  r.events.push({ t: 'phase', phase: 'enemy' });
   for (const e of s.entities.filter(isEnemy).sort((a, b) => a.id - b.id)) {
     if (!e.hp) continue;
     // A trio that survived until now splits, and each sprout acts on its own straight away.
@@ -548,7 +547,7 @@ function endTurn(r: Resolution) {
     const max = maxHp(e);
     if (max !== null && e.hp > max) e.hp = max;
   }
-  r.events.push({ t: 'phase', phase: 'player', turn: s.turn });
+  r.events.push({ t: 'phase', phase: 'player' });
 }
 
 export function stars(state: GameState): 0 | 1 | 2 | 3 {

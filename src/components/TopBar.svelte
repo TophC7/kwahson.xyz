@@ -2,7 +2,7 @@
   import { ArrowLeft02Icon } from '@hugeicons/core-free-icons';
   import Icon from './Icon.svelte';
   import NovaMark from './NovaMark.svelte';
-  import type { ProjectEntry } from '../lib/types';
+  import type { ProjectEntry } from '../projects';
 
   interface Props {
     activeProject: ProjectEntry | null;
@@ -13,7 +13,7 @@
 </script>
 
 <header
-  class="sticky top-0 z-40 flex h-11 shrink-0 items-center justify-between border-b border-[rgba(213,215,207,0.09)] bg-canvas/90 px-4 backdrop-blur-md sm:px-6"
+  class="sticky top-0 z-40 flex h-11 shrink-0 items-center justify-between border-b border-ink/9 bg-canvas/90 px-4 backdrop-blur-md sm:px-6"
 >
   <div class="flex min-w-0 items-center gap-2.5">
     <a
@@ -32,7 +32,7 @@
         >{activeProject.title}<span class="text-ochre">.</span></span
       >
       <span
-        class="hidden rounded-sm border border-[rgba(213,215,207,0.1)] bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] tracking-wider text-ink-muted uppercase sm:inline-block"
+        class="hidden rounded-sm border border-ink/10 bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] tracking-wider text-ink-muted uppercase sm:inline-block"
       >
         {activeProject.category}
       </span>
@@ -43,7 +43,7 @@
     {#if activeProject}
       <a
         href="/"
-        class="group inline-flex items-center gap-1.5 rounded-sm border border-[rgba(213,215,207,0.1)] bg-surface px-2.5 py-1 font-mono text-[11px] text-ink-muted transition-all duration-200 hover:border-[rgba(213,215,207,0.22)] hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sage"
+        class="group inline-flex items-center gap-1.5 rounded-sm border border-ink/10 bg-surface px-2.5 py-1 font-mono text-[11px] text-ink-muted transition-all duration-200 hover:border-ink/22 hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sage"
       >
         <Icon
           icon={ArrowLeft02Icon}

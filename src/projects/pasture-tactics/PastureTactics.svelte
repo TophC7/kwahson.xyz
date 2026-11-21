@@ -1,31 +1,31 @@
 <script lang="ts">
+  import GameStage from '../../components/GameStage.svelte';
   import { untrack } from 'svelte';
   import {
     Alert02Icon, Award01Icon, Cancel01Icon, DiceIcon, GridViewIcon, HelpCircleIcon, RepeatIcon, Share08Icon,
     Tick01Icon, Undo02Icon, VolumeHighIcon, VolumeOffIcon, ZoomInAreaIcon,
   } from '@hugeicons/core-free-icons';
   import Icon from '../../components/Icon.svelte';
-  import AssetGallery from '../../components/AssetGallery.svelte';
-  import { CROP_COUNT, DIFFICULTIES, ENEMIES, ENEMY_KINDS, HEROES, HERO_KINDS, HOLD_TURNS, ITEMS, POWER_PER_TURN, type Difficulty } from './data';
-  import { buildTacticsModel, GALLERY_GROUPS, GALLERY_ITEMS, GALLERY_TAGS } from './models';
+  import AssetGallery, { galleryLinked, linkGallery } from '../../components/AssetGallery.svelte';
+  import { CROP_COUNT, DIFFICULTIES, DIFFICULTY_LEVELS, ENEMIES, ENEMY_KINDS, HEROES, HERO_KINDS, HOLD_TURNS, ITEMS, POWER_PER_TURN, type Difficulty } from './data';
+  import { GALLERY_GROUPS, GALLERY_ITEMS, GALLERY_TAGS } from './models';
   import { mountPastureTactics, type TacticsController, type TacticsHudState } from './scene';
 
-  const difficulties = Object.keys(DIFFICULTIES) as Difficulty[];
-  const card = 'rounded-md border border-[rgba(213,215,207,0.12)] bg-surface/88 backdrop-blur-md';
-  const buttonBase = 'pt-btn inline-flex cursor-pointer items-center justify-center rounded-sm border border-[rgba(213,215,207,0.12)] bg-surface-raised font-mono text-ink transition-colors hover:border-sage/45 disabled:cursor-default disabled:opacity-45';
+  const card = 'rounded-md border border-ink/12 bg-surface/88 backdrop-blur-md';
+  const buttonBase = 'focus-ring pt-btn inline-flex cursor-pointer items-center justify-center rounded-sm border border-ink/12 bg-surface-raised font-mono text-ink transition-colors hover:border-sage/45 disabled:cursor-default disabled:opacity-45';
   const btn = `${buttonBase} min-h-11 min-w-11 gap-1.5 px-2 text-[11px]`;
   const chip = `${buttonBase} min-h-10 min-w-0 gap-0.5 px-0.5`;
   const primary = `${btn} border-sage/55 bg-sage/25 hover:bg-sage/35`;
   const slot = 'flex h-[52px] w-full min-w-0 flex-col justify-center rounded-sm border border-ink/10 bg-surface-raised px-1.5 text-left font-mono text-[11px] leading-tight';
-  const pill = 'inline-flex max-w-full items-center gap-1.5 rounded-full border border-[rgba(213,215,207,0.1)] bg-surface/82 px-3 py-1 font-mono text-[10.5px] text-ink-muted backdrop-blur-md';
-  const sheet = 'm-auto max-h-[90dvh] w-[min(92vw,26rem)] overflow-y-auto rounded-md border border-[rgba(213,215,207,0.14)] bg-surface p-5 text-ink shadow-[0_24px_70px_rgba(0,0,0,0.72)] backdrop:bg-canvas/65 backdrop:backdrop-blur-xs';
+  const pill = 'inline-flex max-w-full items-center gap-1.5 rounded-full border border-ink/10 bg-surface/82 px-3 py-1 font-mono text-[10.5px] text-ink-muted backdrop-blur-md';
+  const sheet = 'm-auto max-h-[90dvh] w-[min(92vw,26rem)] overflow-y-auto rounded-md border border-ink/14 bg-surface p-5 text-ink shadow-[0_24px_70px_rgba(0,0,0,0.72)] backdrop:bg-canvas/65 backdrop:backdrop-blur-xs';
 
   let viewportEl = $state<HTMLDivElement>();
   let topEl: HTMLDivElement;
   let panelEl: HTMLElement;
   let hintEl: HTMLElement;
   let controller: TacticsController | null = null;
-  let errorMessage = $state('');
+  let failed = $state(false);
   let hud = $state<TacticsHudState>({
     seed: 0, difficulty: 'medium', objective: 'rout', turn: 1, power: POWER_PER_TURN,
     phase: 'player', busy: false, fastForward: false, canUndo: false, muted: false, zoomed: false,
@@ -35,7 +35,7 @@
   let portraits = $state.raw<Record<string, string>>({});
   let showGuide = $state(false);
   let showShare = $state(false);
-  let showGallery = $state(new URLSearchParams(location.search).has('gallery'));
+  let showGallery = $state(galleryLinked());
   let armed = $state('');
   let seedInput = $state<number>();
   let copied = $state(false);
@@ -43,7 +43,7 @@
   let copyTimer = 0;
   const locked = $derived(hud.busy || hud.phase !== 'player');
   const result = $derived(!hud.busy && (hud.phase === 'won' || hud.phase === 'lost'));
-  const nextDifficulty = $derived<Difficulty | undefined>(difficulties[difficulties.indexOf(hud.difficulty) + 1]);
+  const nextDifficulty = $derived<Difficulty | undefined>(DIFFICULTY_LEVELS[DIFFICULTY_LEVELS.indexOf(hud.difficulty) + 1]);
   const docked = window.matchMedia('(min-width: 64rem)');
   const selectedHero = $derived(hud.heroes.find((hero) => hero.id === hud.selected?.id));
   const spending = $derived(hud.pendingItem ? ITEMS[hud.pendingItem].power : 0);
@@ -51,10 +51,7 @@
 
   function setGalleryOpen(open: boolean) {
     showGallery = open;
-    const url = new URL(location.href);
-    if (open) url.searchParams.set('gallery', '1');
-    else url.searchParams.delete('gallery');
-    history.replaceState({}, '', url.pathname + url.search + url.hash);
+    linkGallery(open);
   }
 
   function confirmAction(key: string, needsConfirmation: boolean) {
@@ -103,7 +100,7 @@
   $effect(() => {
     const viewport = viewportEl;
     if (!viewport) return;
-    errorMessage = '';
+    failed = false;
     try {
       const instance = untrack(() => mountPastureTactics({
         viewport,
@@ -114,6 +111,7 @@
           }
           Object.assign(hud, patch);
         },
+        chrome: [panelEl, topEl, hintEl],
         // Wide screens dock the orders panel beside the board instead of under it.
         insets: () => {
           const top = (topEl?.offsetHeight ?? 0) + 8, panel = panelEl ?? { offsetWidth: 0, offsetHeight: 0 };
@@ -123,12 +121,7 @@
       }));
       controller = instance;
       portraits = instance.portraits;
-      const observer = new ResizeObserver(() => instance.refit());
-      observer.observe(panelEl);
-      observer.observe(topEl);
-      observer.observe(hintEl);
       return () => {
-        observer.disconnect();
         clearTimeout(armTimer);
         clearTimeout(copyTimer);
         instance.destroy();
@@ -136,7 +129,7 @@
       };
     } catch (err) {
       console.error(err);
-      errorMessage = 'Your browser could not start the 3D tactics board. Please enable WebGL or try a newer browser.';
+      failed = true;
     }
   });
 </script>
@@ -161,8 +154,8 @@
 
 {#snippet difficultySelector()}
   <div role="group" aria-label="Difficulty" class="{card} pointer-events-auto inline-flex items-center gap-0.5 p-0.5">
-    {#each difficulties as difficulty}
-      <button class="pt-btn min-h-10 cursor-pointer rounded-sm px-2 font-mono text-[11px] text-ink-muted uppercase hover:bg-surface-raised" aria-pressed={hud.difficulty === difficulty} title={DIFFICULTIES[difficulty].tagline}
+    {#each DIFFICULTY_LEVELS as difficulty}
+      <button class="focus-ring pt-btn min-h-10 cursor-pointer rounded-sm px-2 font-mono text-[11px] text-ink-muted uppercase hover:bg-surface-raised" aria-pressed={hud.difficulty === difficulty} title={DIFFICULTIES[difficulty].tagline}
         onclick={() => { if (difficulty !== hud.difficulty) replaceFight(difficulty, difficulty); }}>
         {armed === difficulty ? `New ${DIFFICULTIES[difficulty].label} fight?` : DIFFICULTIES[difficulty].label}
       </button>
@@ -176,9 +169,7 @@
 {/snippet}
 
 <div class="relative h-full w-full overflow-hidden bg-canvas text-ink select-none lg:grid lg:grid-rows-[auto_minmax(0,1fr)]" aria-label="Pasture Tactics">
-  <div class="bg-field-grid pointer-events-none absolute inset-0 opacity-30 [mask-image:radial-gradient(ellipse_82%_76%_at_50%_50%,#000_25%,transparent_100%)]" aria-hidden="true"></div>
-  <div class="pointer-events-none absolute inset-0" style="background:radial-gradient(circle at 50% 48%, rgba(122,141,118,.11), transparent 64%)" aria-hidden="true"></div>
-  <div bind:this={viewportEl} class="pt-viewport absolute inset-0 z-0 touch-none" aria-label="3D tactics board"></div>
+  <GameStage bind:viewport={viewportEl} label="3D tactics board" what="the 3D tactics board" {failed} />
 
   <div bind:this={topEl} class="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col gap-1.5 p-2 sm:p-4 lg:relative">
     <div class="flex flex-wrap items-start justify-between gap-1 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
@@ -243,7 +234,7 @@
         {@const info = ITEMS[hud.pendingItem]}
         <div class={slot}><strong>{info.name}</strong><span class="line-clamp-2 text-ink-muted">{info.desc}</span></div>
       {:else if hud.selected?.isHero}
-        <button class="{slot} pt-btn cursor-pointer disabled:cursor-default disabled:opacity-65" aria-pressed={hud.mode === 'skill'} disabled={!hud.selected.canSkill} onclick={() => controller?.chooseSkill()}>
+        <button class="{slot} focus-ring pt-btn cursor-pointer disabled:cursor-default disabled:opacity-65" aria-pressed={hud.mode === 'skill'} disabled={!hud.selected.canSkill} onclick={() => controller?.chooseSkill()}>
           <span class="flex items-center gap-1.5"><strong>{hud.selected.abilityName}</strong><span class="text-[10px] text-sage-soft">Free</span></span>
           <span class="line-clamp-2 text-ink-muted">{hud.selected.abilityDesc}</span>
         </button>
@@ -329,21 +320,10 @@
       </div>
     </dialog>
   {/if}
-  {#if showGallery}<AssetGallery title="Pasture Tactics Assets" storageKey="pasture-tactics-asset-review-v1" items={GALLERY_ITEMS} groups={GALLERY_GROUPS} tags={GALLERY_TAGS} build={buildTacticsModel} onClose={() => setGalleryOpen(false)} />{/if}
-  {#if errorMessage}<div role="alert" class="absolute top-1/2 left-1/2 z-40 max-w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-md border border-[#b86b58]/40 bg-surface px-5 py-4 text-center text-sm text-[#d49685]">{errorMessage}</div>{/if}
+  {#if showGallery}<AssetGallery title="Pasture Tactics Assets" storageKey="pasture-tactics-asset-review-v1" items={GALLERY_ITEMS} groups={GALLERY_GROUPS} tags={GALLERY_TAGS} onClose={() => setGalleryOpen(false)} />{/if}
 </div>
 
 <style>
-  .pt-viewport :global(canvas) {
-    position: absolute;
-    inset: 0;
-    display: block;
-    width: 100%;
-    height: 100%;
-    outline: none;
-    touch-action: none;
-  }
   .stat-label { display: block; font-size: 8.5px; font-weight: 400; letter-spacing: .12em; text-transform: uppercase; color: var(--color-ink-dim); }
-  :global(.pt-btn:focus-visible) { outline: 2px solid var(--color-sage); outline-offset: 2px; }
   :global(.pt-btn[aria-pressed='true']) { border-color: var(--color-sage); background-color: color-mix(in srgb, var(--color-sage) 24%, var(--color-surface)); }
 </style>

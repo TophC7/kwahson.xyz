@@ -1,8 +1,9 @@
+import type { MiniatureId } from '../../lib/miniatures';
 import * as THREE from 'three';
 import type { Bursts } from '../../lib/bursts';
 import type { PartKind, PastureKit } from '../../lib/pastureKit';
-import type { SfxName, TacticsAudio } from './audio';
-import { COLS, ROWS, ITEMS } from './data';
+import type { TacticsAudio } from './audio';
+import { COLS, ROWS, ITEMS, type HeroKind, type EnemyKind } from './data';
 import { isEnemy, isHero, type Entity, type GameEvent } from './rules';
 
 export interface EntityVisual {
@@ -29,13 +30,12 @@ export interface Stage {
   bursts: Bursts;
   audio: TacticsAudio;
   /** A fresh copy of a model whose widest side spans `footprint`, feet on its origin. */
-  model(id: string, footprint: number): THREE.Group;
+  model(id: MiniatureId, footprint: number): THREE.Group;
   onPhase(phase: 'enemy' | 'player'): void;
 }
 
 export interface Playback {
   play(events: GameEvent[]): Promise<void>;
-  readonly busy: boolean;
   timeScale: number;
   update(dt: number): void;
   cancel(): void;
@@ -50,14 +50,14 @@ const UP = new THREE.Vector3(0, 1, 0);
 const arc = (t: number) => 4 * t * (1 - t);
 const inside = (x: number, y: number) => x >= 0 && x < COLS && y >= 0 && y < ROWS;
 // Straight attacks drawn as one shape from the attacker to its target; a cone flares toward the target.
-const RAYS: Partial<Record<string, { kind: PartKind; color: number; radius: number; opacity: number; time: number }>> = {
-  Laser: { kind: 'box', color: 0xff8f5a, radius: 0.10, opacity: 1, time: 0.12 },
-  Beam: { kind: 'cylinder', color: 0x68ccc4, radius: 0.19, opacity: 0.48, time: 0.30 },
-  Chain: { kind: 'box', color: 0xffe066, radius: 0.07, opacity: 1, time: 0.18 },
-  Jet: { kind: 'cylinder', color: 0x5aa7e6, radius: 0.14, opacity: 0.75, time: 0.24 },
-  Flame: { kind: 'cone', color: 0xff7a33, radius: 0.34, opacity: 0.8, time: 0.30 },
+const RAYS: Partial<Record<HeroKind | EnemyKind, { kind: PartKind; color: number; radius: number; opacity: number; time: number }>> = {
+  scout: { kind: 'box', color: 0xff8f5a, radius: 0.10, opacity: 1, time: 0.12 },
+  saucer: { kind: 'cylinder', color: 0x68ccc4, radius: 0.19, opacity: 0.48, time: 0.30 },
+  yellowSprout: { kind: 'box', color: 0xffe066, radius: 0.07, opacity: 1, time: 0.18 },
+  blueSprout: { kind: 'cylinder', color: 0x5aa7e6, radius: 0.14, opacity: 0.75, time: 0.24 },
+  redSprout: { kind: 'cone', color: 0xff7a33, radius: 0.34, opacity: 0.8, time: 0.30 },
 };
-const IMPACTS: Partial<Record<string, number>> = { Chain: 0xffe066, Jet: 0x8fd0ff, Flame: 0xff7a33 };
+const IMPACTS: Partial<Record<HeroKind | EnemyKind, number>> = { yellowSprout: 0xffe066, blueSprout: 0x8fd0ff, redSprout: 0xff7a33 };
 
 export function createPlayback(stage: Stage, reduceMotion: boolean): Playback {
   const tile = stage.tileCenter(0, 0).distanceTo(stage.tileCenter(1, 0));
@@ -85,7 +85,7 @@ export function createPlayback(stage: Stage, reduceMotion: boolean): Playback {
   function part(kind: PartKind, color: number, size: [number, number, number], mat?: THREE.Material) {
     return stage.kit.part(effectGroup(), kind, color, size, undefined, mat);
   }
-  function miniature(id: string, footprint: number) {
+  function miniature(id: MiniatureId, footprint: number) {
     const holder = new THREE.Group(); holder.add(stage.model(id, footprint)); effectGroup().add(holder);
     return holder;
   }
@@ -126,16 +126,19 @@ export function createPlayback(stage: Stage, reduceMotion: boolean): Playback {
       }
       case 'skill': {
         if (!v) return;
+        const { entity } = v;
+        if (!isHero(entity) && !isEnemy(entity)) return;
+        const { kind } = entity;
         const at = v.holder.position.clone(), ground = stage.tileCenter(e.x, e.y);
         const start = at.clone(); start.y += v.hover + 0.65;
         const end = ground.clone(); end.y += 0.55;
         const heading = new THREE.Vector3(DX[e.dir], 0, DZ[e.dir]);
         const yaw = v.holder.rotation.y;
         v.holder.rotation.y = YAW[e.dir];
-        if (e.name === 'Belly Flop') {
+        if (kind === 'pig') {
           const landing = at.clone().addScaledVector(heading, tile * 0.64);
           yield [0.28, travel(v.holder, at, landing, tile * 0.56)];
-          stage.audio.play('Belly Flop');
+          stage.audio.play('pig');
           stage.bursts.spawn(landing, 0xd9c9a8, 12);
           yield [0.16, t => {
             v.model.scale.y = v.baseScale * (1 - 0.26 * arc(t));
@@ -144,8 +147,8 @@ export function createPlayback(stage: Stage, reduceMotion: boolean): Playback {
           v.holder.rotation.y = yaw;
           return;
         }
-        stage.audio.play(e.name as SfxName);
-        if (e.name === 'Gust') {
+        stage.audio.play(kind);
+        if (kind === 'duck') {
           const left = v.model.getObjectByName('wing-left')!, right = v.model.getObjectByName('wing-right')!;
           yield [0.36, t => {
             const flap = arc((t * 2) % 1);
@@ -157,7 +160,7 @@ export function createPlayback(stage: Stage, reduceMotion: boolean): Playback {
           return;
         }
         let fx: Frame | undefined, fxTime = 0;
-        const ray = RAYS[e.name];
+        const ray = RAYS[kind];
         if (ray) {
           const mat = tint(ray.color, ray.opacity);
           const shape = part(ray.kind, ray.color, [ray.radius, start.distanceTo(end), ray.radius], mat);
@@ -167,19 +170,19 @@ export function createPlayback(stage: Stage, reduceMotion: boolean): Playback {
           fx = t => { mat.opacity = ray.opacity * arc(t); };
           fxTime = ray.time;
         }
-        switch (e.name) {
-          case 'Sting': {
+        switch (kind) {
+          case 'bee': {
             const dart = part('cone', 0xf2c63b, [0.09, 0.38, 0.09]);
             dart.quaternion.setFromUnitVectors(UP, heading);
             fx = travel(dart, start, end, 0); fxTime = 0.15; break;
           }
-          case 'Mortar': case 'Egg': {
-            const mortar = e.name === 'Mortar';
+          case 'lobber': case 'hen': {
+            const mortar = kind === 'lobber';
             const shot = mortar ? part('sphere', 0xff8f5a, [0.14, 0.14, 0.14]) : miniature('egg', tile * 0.3);
             fx = travel(shot, start, ground, tile * (mortar ? 1.3 : 0.6));
             fxTime = mortar ? 0.45 : 0.25; break;
           }
-          case 'Mend': {
+          case 'healer': {
             const cross = new THREE.Group(); effectGroup().add(cross);
             for (const size of [[0.47, 0.13, 0.13], [0.13, 0.47, 0.13]] as const) {
               stage.kit.part(cross, 'box', 0x92d877, [...size]);
@@ -188,7 +191,7 @@ export function createPlayback(stage: Stage, reduceMotion: boolean): Playback {
             fx = t => { cross.position.copy(end); cross.position.y += t * 0.7; cross.scale.setScalar(arc(t)); };
             fxTime = 0.28; break;
           }
-          case 'Wool': {
+          case 'sheep': {
             const flock = new THREE.Group(); effectGroup().add(flock);
             for (let i = 0; i < 5; i++) {
               const a = i * 2.4;
@@ -197,22 +200,22 @@ export function createPlayback(stage: Stage, reduceMotion: boolean): Playback {
             fx = travel(flock, start, end, 0.4); fxTime = 0.25; break;
           }
         }
-        const lungeTime = e.name === 'Slam' ? 0.25 : 0.22;
+        const lungeTime = kind === 'brute' ? 0.25 : 0.22;
         const duration = Math.max(lungeTime, fxTime);
         yield [duration, t => {
           const progress = Math.min(1, t * duration / lungeTime);
           v.holder.position.copy(at).addScaledVector(heading, tile * 0.30 * arc(progress));
-          if (e.name === 'Slam') v.holder.position.y += 0.55 * arc(progress);
+          if (kind === 'brute') v.holder.position.y += 0.55 * arc(progress);
           if (fx) fx(Math.min(1, t * duration / fxTime));
         }];
         v.holder.rotation.y = yaw;
-        const impact = IMPACTS[e.name];
+        const impact = IMPACTS[kind];
         if (impact !== undefined) {
           stage.bursts.spawn(ground, impact, 10);
           // Flame scorches both tiles in front of the attacker.
-          if (e.name === 'Flame') stage.bursts.spawn(at.clone().addScaledVector(heading, tile), impact, 10);
+          if (kind === 'redSprout') stage.bursts.spawn(at.clone().addScaledVector(heading, tile), impact, 10);
         }
-        if (e.name === 'Mortar' && inside(e.x, e.y)) {
+        if (kind === 'lobber' && inside(e.x, e.y)) {
           const mat = tint(0xff8f5a, 0.8);
           for (let i = -1; i < 4; i++) {
             const x = e.x + (i < 0 ? 0 : DX[i]), y = e.y + (i < 0 ? 0 : DZ[i]);
@@ -221,7 +224,7 @@ export function createPlayback(stage: Stage, reduceMotion: boolean): Playback {
             flash.position.copy(stage.tileCenter(x, y)); flash.position.y += 0.06;
           }
           yield [0.14, t => { mat.opacity = 0.8 * (1 - t); }];
-        } else if (e.name === 'Slam') {
+        } else if (kind === 'brute') {
           const mat = tint(0xffc18c, 0.85);
           const ring = part('ring', 0xffc18c, [1, 1, 1], mat);
           ring.position.copy(ground); ring.position.y += 0.05; ring.rotation.x = -Math.PI / 2;
@@ -356,7 +359,7 @@ export function createPlayback(stage: Stage, reduceMotion: boolean): Playback {
         if (!v) return;
         const at = v.holder.position.clone();
         stage.removeEntity(e.id);
-        stage.audio.play('split');
+        stage.audio.play('sprouts');
         stage.bursts.spawn(at, 0x9cd994, 10);
         const sprouts = e.into.map(m => stage.addEntity(m));
         yield [0.18, t => { for (const s of sprouts) s.model.scale.setScalar(s.baseScale * (0.4 + 0.6 * t)); }];
@@ -423,7 +426,6 @@ export function createPlayback(stage: Stage, reduceMotion: boolean): Playback {
   }
   return {
     timeScale: 1,
-    get busy() { return current !== undefined; },
     play(events) {
       return new Promise((resolve, reject) => {
         const batch = { events, resolve, reject };

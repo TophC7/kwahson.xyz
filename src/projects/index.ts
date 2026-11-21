@@ -1,7 +1,63 @@
-import type { ProjectEntry } from '../lib/types';
-import { bammi } from './bammi';
-import { moojong } from './moojong';
-import { pasturePatrol } from './pasture-patrol';
-import { pastureTactics } from './pasture-tactics';
+import type { Component } from 'svelte';
+import BammiPreview from './bammi/Preview.svelte';
+import MoojongPreview from './moojong/Preview.svelte';
+import PasturePatrolPreview from './pasture-patrol/Preview.svelte';
+import PastureTacticsPreview from './pasture-tactics/Preview.svelte';
 
-export const projects: ProjectEntry[] = [pastureTactics, moojong, pasturePatrol, bammi];
+export interface ProjectEntry {
+  slug: string;
+  title: string;
+  description: string;
+  category: 'game' | 'tool' | '3d' | 'experiment';
+  tags: string[];
+  year: number;
+  preview: Component;
+  load: () => Promise<{ default: Component }>;
+}
+
+export const projects: ProjectEntry[] = [
+  {
+    slug: 'pasture-tactics',
+    title: 'Pasture Tactics',
+    description:
+      'A seeded turn-based skirmish on one board: a small herd with signature moves and shared items against telegraphing alien visitors.',
+    category: 'game',
+    tags: ['Three.js', 'Tactics', 'Web Audio'],
+    year: 2026,
+    preview: PastureTacticsPreview,
+    load: () => import('./pasture-tactics/PastureTactics.svelte'),
+  },
+  {
+    slug: 'moojong',
+    title: 'Moojong',
+    description:
+      'A 3D Pasture Patrol Mahjong Solitaire board with 42 low-poly meadow miniatures, guaranteed-solvable procedural stacks, and three difficulty tiers.',
+    category: 'game',
+    tags: ['Three.js', 'Mahjong', 'Web Audio'],
+    year: 2026,
+    preview: MoojongPreview,
+    load: () => import('./moojong/Moojong.svelte'),
+  },
+  {
+    slug: 'pasture-patrol',
+    title: 'Pasture Patrol',
+    description:
+      'Steer a hovering saucer over an isometric meadow, abduct wandering cows, snag healer cows, and keep hazards out of your tractor beam.',
+    category: 'game',
+    tags: ['Three.js', 'Web Audio', '3D'],
+    year: 2026,
+    preview: PasturePatrolPreview,
+    load: () => import('./pasture-patrol/PasturePatrol.svelte'),
+  },
+  {
+    slug: 'bammi',
+    title: 'Bammi',
+    description:
+      'Claim irregular territories and fill neighbor-counted pies until they burst into chain reactions, solo against AI or pass-and-play.',
+    category: 'game',
+    tags: ['Strategy', 'SVG', 'AI'],
+    year: 2026,
+    preview: BammiPreview,
+    load: () => import('./bammi/Bammi.svelte'),
+  },
+];

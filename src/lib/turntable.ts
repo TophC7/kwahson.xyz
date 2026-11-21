@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createPastureKit } from './pastureKit';
-import { buildMiniature, createStudioBuilder, createStudioStage, frameModel, type StudioBuilder } from "./miniatures";
+import { buildMiniature, createStudioBuilder, createStudioStage, frameModel, type MiniatureId } from './miniatures';
 
 const RENDER_SIZE = 512;
 const SPIN_SPEED = 0.7; // radians per second
@@ -15,7 +15,7 @@ interface Target {
 
 export interface Turntable {
   /** Svelte attachment: draws the design's miniature into a 2D canvas, slowly spinning. */
-  spin(designId: string): (canvas: HTMLCanvasElement) => () => void;
+  spin(designId: MiniatureId): (canvas: HTMLCanvasElement) => () => void;
   destroy(): void;
 }
 
@@ -24,13 +24,10 @@ export interface Turntable {
  * rendered in turn and copied into its own 2D canvas, so any number of cards
  * share a single GL context and lay out like ordinary images.
  */
-export function createTurntable(
-  build: (studio: StudioBuilder, id: string) => THREE.Group = buildMiniature,
-): Turntable {
+export function createTurntable(): Turntable {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(1);
   renderer.setSize(RENDER_SIZE, RENDER_SIZE, false);
-  renderer.setClearColor(0x000000, 0);
 
   const kit = createPastureKit();
   const studio = createStudioBuilder(kit);
@@ -38,7 +35,7 @@ export function createTurntable(
   // Bounding-sphere radius 1.05 vs frustum half-width 1.35 / 1.25 = 1.08: fills the frame, never clips mid-spin.
   stage.camera.zoom = 1.25;
   stage.camera.updateProjectionMatrix();
-  const holders = new Map<string, THREE.Group>();
+  const holders = new Map<MiniatureId, THREE.Group>();
   const targets = new Map<Element, Target>();
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -49,10 +46,10 @@ export function createTurntable(
     }
   });
 
-  function holderFor(designId: string): THREE.Group {
+  function holderFor(designId: MiniatureId): THREE.Group {
     let holder = holders.get(designId);
     if (!holder) {
-      holder = frameModel(build(studio, designId));
+      holder = frameModel(buildMiniature(studio, designId));
       holders.set(designId, holder);
     }
     return holder;
