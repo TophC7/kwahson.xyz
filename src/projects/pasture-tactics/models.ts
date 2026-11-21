@@ -71,21 +71,6 @@ export function buildTacticsModel(studio: StudioBuilder, id: string): THREE.Grou
       g.rotation.y = 0.35;
       return g;
     }
-    case 'egg': {
-      const g = new THREE.Group();
-      part(g, 'cylinder', 0xe6b853, [0.24, 0.06, 0.24], [0, 0.03, 0]);
-      part(g, 'cylinder', 0xc3933e, [0.19, 0.065, 0.19], [0, 0.035, 0]);
-      const profile = [
-        new THREE.Vector2(0, 0), new THREE.Vector2(0.12, 0.03), new THREE.Vector2(0.17, 0.12),
-        new THREE.Vector2(0.15, 0.24), new THREE.Vector2(0.09, 0.33), new THREE.Vector2(0, 0.37),
-      ];
-      mesh(g, track(new THREE.LatheGeometry(profile, 8)), 0xfaf5ea, [0, 0.04, 0], { flat: true, roughness: 0.85 });
-      part(g, 'box', 0xd9c9a8, [0.03, 0.03, 0.01], [-0.065, 0.17, 0.143]).rotation.y = -Math.PI / 8;
-      part(g, 'box', 0xd9c9a8, [0.03, 0.03, 0.01], [0.05, 0.22, 0.14]).rotation.y = Math.PI / 8;
-      part(g, 'box', 0xd9c9a8, [0.03, 0.03, 0.01], [-0.03, 0.29, 0.131]).rotation.y = -Math.PI / 8;
-      g.rotation.y = 0.35;
-      return g;
-    }
     case 'corn-wall': {
       // Blocky row of three corn stalks on a dirt bed.
       const g = new THREE.Group();

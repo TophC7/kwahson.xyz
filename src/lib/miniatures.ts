@@ -1221,6 +1221,23 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       return g;
     }
 
+    case 'egg': {
+      // Speckled egg in a straw nest: Pasture Tactics' Hen trap and Pasture Patrol's egg bomb.
+      const g = new THREE.Group();
+      part(g, 'cylinder', 0xe6b853, [0.24, 0.06, 0.24], [0, 0.03, 0]);
+      part(g, 'cylinder', 0xc3933e, [0.19, 0.065, 0.19], [0, 0.035, 0]);
+      const profile = [
+        new THREE.Vector2(0, 0), new THREE.Vector2(0.12, 0.03), new THREE.Vector2(0.17, 0.12),
+        new THREE.Vector2(0.15, 0.24), new THREE.Vector2(0.09, 0.33), new THREE.Vector2(0, 0.37),
+      ];
+      mesh(g, track(new THREE.LatheGeometry(profile, 8)), 0xfaf5ea, [0, 0.04, 0], { flat: true, roughness: 0.85 });
+      part(g, 'box', 0xd9c9a8, [0.03, 0.03, 0.01], [-0.065, 0.17, 0.143]).rotation.y = -Math.PI / 8;
+      part(g, 'box', 0xd9c9a8, [0.03, 0.03, 0.01], [0.05, 0.22, 0.14]).rotation.y = Math.PI / 8;
+      part(g, 'box', 0xd9c9a8, [0.03, 0.03, 0.01], [-0.03, 0.29, 0.131]).rotation.y = -Math.PI / 8;
+      g.rotation.y = 0.35;
+      return g;
+    }
+
     case 'scarecrow': {
       // Matte low-poly Pumpkin-Headed Scarecrow reusing the exact 7-lobe low-poly pumpkin!
       const g = new THREE.Group();

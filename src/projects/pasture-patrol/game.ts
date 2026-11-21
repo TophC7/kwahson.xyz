@@ -8,49 +8,67 @@ import {
   type ObstacleKind,
 } from '../../lib/pastureKit';
 import { createAudio } from './audio';
+import { createStudioBuilder } from '../../lib/miniatures';
+import { chooseAnimal, createHerdModels, POINTS, type Animal } from './herd';
+import { createThreats } from './threats';
 
-// All gameplay tuning is here. Distances are in world units, time in seconds.
+// Distances in world units; timers in seconds.
 const HALF = 7.5;
 const UFO_SPEED = 9;
 const COW_SPEED = 1.05;
-const SUCTION_RADIUS = 1.55;
+const SUCTION_RADIUS = 1.3;
 const COW_LIFT_SPEED = 1.55;
 const HAZARD_LIFT_SPEED = 1.1;
 const MAX_HEALTH = 100;
 const DAMAGE = 20;
 const HEAL = 25;
-const COW_CAP = 13;
-const OBSTACLE_CAP = 9;
+const COW_CAP = 11;
+const OBSTACLE_CAP = 11;
 const DEBRIS_LIFETIME = 28;
 const HAY_LIFETIME = 18;
 const DESPAWN_DURATION = 1.2;
 const COW_SPACING = 1.15;
-const COW_INTERVAL = 1.8;
-const OBSTACLE_INTERVAL = 4;
+const COW_INTERVAL = 2.2;
+const OBSTACLE_INTERVAL = 3.4;
 const SPECIAL_INTERVAL = 12;
-const SCORE_PER_LEVEL = 8;
-export const MAX_LEVEL = 5;
+const CHAIN_WINDOW = 2.5;
+const MAX_COMBO = 4;
 const HAY_INTERVAL = 10;
 const FLEE_RADIUS = 4.3;
 const HOVER = 2.8;
+// Kicked debris decelerates at this rate (units/s²), so kick speed sets how far it slides.
+const SLIDE_DRAG = 3;
+// Chickens start laying egg bombs at this level. Eggs are light: easy to graze into the beam.
+const EGG_LEVEL = 3;
+const EGG_LIFT_SPEED = 3;
+const EGG_GRAB_BONUS = 0.4;
 
-const DIFFICULTY_LEVELS = Array.from({ length: MAX_LEVEL }, (_, i) => {
-  const level = i + 1;
-  return Object.freeze({
+function difficultyAt(level: number) {
+  const i = level - 1;
+  return {
     level,
-    obstacleCap: OBSTACLE_CAP + i * 2,
-    obstacleInterval: OBSTACLE_INTERVAL - i * 0.6,
-    hayInterval: HAY_INTERVAL - i,
-    hayCap: Math.min(4, level + 1),
-    haySpeed: 1.6 + i * 0.3,
-    fleeSpeed: 2.4 + i * 0.25,
-  });
-});
+    // Levels take 10, 15, 20, … more passengers. Points never affect pressure.
+    nextLevelAt: (5 * level * (level + 3)) / 2,
+    obstacleCap: Math.min(18, OBSTACLE_CAP + Math.floor(i / 2)),
+    obstacleInterval: Math.max(2.3, OBSTACLE_INTERVAL - i * 0.13),
+    hayInterval: Math.max(6, HAY_INTERVAL - i * 0.32),
+    hayCap: Math.min(4, 2 + Math.floor(i / 4)),
+    haySpeed: Math.min(3.1, 1.6 + i * 0.1),
+    fleeSpeed: Math.min(3.7, 2.4 + i * 0.09),
+    hazardLift: Math.min(1.85, HAZARD_LIFT_SPEED + i * 0.05),
+    healerInterval: Math.min(20, SPECIAL_INTERVAL + i * 0.75),
+    eggCap: level < EGG_LEVEL ? 0 : Math.min(4, 1 + Math.floor((level - EGG_LEVEL) / 2)),
+    eggGap: Math.max(5, 11 - (level - EGG_LEVEL)),
+  };
+}
 
 const random = (min: number, max: number) => min + Math.random() * (max - min);
 const clamp = (v: number) => THREE.MathUtils.clamp(v, -HALF + 0.5, HALF - 0.5);
 
 interface Entity {
+  animal?: Animal;
+  flock?: number;
+  scatter: number;
   mesh: THREE.Group;
   type: 'cow' | 'obstacle';
   special: boolean;
@@ -67,6 +85,14 @@ interface Entity {
   wasScared?: boolean;
   legs?: CowLeg[];
   roller?: THREE.Group;
+  /** Goats: seconds until the next debris kick. Chickens: seconds until the next egg. */
+  trickWait?: number;
+  /** Kicked debris: current slide speed. */
+  slide?: number;
+  /** Egg bomb: explodes when its lifetime runs out. */
+  egg?: boolean;
+  /** Seconds the animal stands still, e.g. a hen laying an egg. */
+  pause?: number;
 }
 
 interface BurstEffect {
@@ -76,18 +102,17 @@ interface BurstEffect {
 }
 
 export interface PastureHudState {
+  combo: number;
   score: number;
   health: number;
   level: number;
+  abductions: number;
+  nextLevelAt: number;
   status: string;
   paused: boolean;
   ended: boolean;
   muted: boolean;
-  legends: {
-    cow: string;
-    healer: string;
-    hazards: string;
-  };
+  legends: Record<string, string>;
 }
 
 export interface PastureController {
@@ -150,6 +175,9 @@ export function mountPasturePatrol({
     // Shared resources keep restarts and spawning memory-stable.
     const kit = createPastureKit();
     cleanups.push(() => kit.dispose());
+    const studio = createStudioBuilder(kit);
+    cleanups.push(() => studio.dispose());
+    const models = createHerdModels(studio);
     const { part, makeCow, makeUfo, makeObstacle } = kit;
 
     const shadowMaterial = new THREE.MeshBasicMaterial({
@@ -160,8 +188,8 @@ export function mountPasturePatrol({
     });
     cleanups.push(() => shadowMaterial.dispose());
 
-    function shadow(parent: THREE.Object3D, size: number, x = 0, z = 0, aspect = 1) {
-      const mesh = part(parent, 'disc', 0, [size, size * aspect, 1], [x, 0.12, z], shadowMaterial);
+    function shadow(parent: THREE.Object3D, size: number, x = 0, z = 0) {
+      const mesh = part(parent, 'disc', 0, [size, size, 1], [x, 0.12, z], shadowMaterial);
       mesh.rotation.x = -Math.PI / 2;
       return mesh;
     }
@@ -208,18 +236,19 @@ export function mountPasturePatrol({
       previewCamera.lookAt(0, 0.65, 0);
       renderer.setSize(128, 128, false);
 
-      const cowModel = makeCow({ special: false }).mesh;
-      previewScene.add(cowModel);
-      renderer.render(previewScene, previewCamera);
-      const cow = renderer.domElement.toDataURL('image/png');
-      previewScene.remove(cowModel);
-
-      const healerModel = makeCow({ special: true }).mesh;
-      previewScene.add(healerModel);
-      renderer.render(previewScene, previewCamera);
-      const healer = renderer.domElement.toDataURL('image/png');
-      previewScene.remove(healerModel);
-
+      const legends: Record<string, string> = {};
+      function capture(key: string, model: THREE.Group) {
+        previewScene.add(model);
+        renderer.render(previewScene, previewCamera);
+        legends[key] = renderer.domElement.toDataURL('image/png');
+        previewScene.remove(model);
+      }
+      capture('cow', makeCow().mesh);
+      capture('healer', makeCow({ special: true }).mesh);
+      capture('gunner', models.animal('gunner').mesh);
+      for (const id of ['chicken', 'goat', 'pig', 'sheep', 'pumpkin', 'tractor', 'bee']) {
+        capture(id, models.miniature(id));
+      }
       const hazardsGroup = new THREE.Group();
       (['rock', 'stump', 'crate', 'hay'] as ObstacleKind[]).forEach((kind, i) => {
         const model = makeObstacle(kind).mesh;
@@ -227,7 +256,6 @@ export function mountPasturePatrol({
         model.rotation.y = -0.3;
         hazardsGroup.add(model);
       });
-      previewScene.add(hazardsGroup);
       previewCamera.left = -2.4;
       previewCamera.right = 2.4;
       previewCamera.top = 1.2;
@@ -236,10 +264,8 @@ export function mountPasturePatrol({
       previewCamera.lookAt(0, 0.4, 0);
       previewCamera.updateProjectionMatrix();
       renderer.setSize(256, 128, false);
-      renderer.render(previewScene, previewCamera);
-      const hazards = renderer.domElement.toDataURL('image/png');
-
-      onState({ legends: { cow, healer, hazards } });
+      capture('hazards', hazardsGroup);
+      onState({ legends });
     }
     renderLegendPreviews();
 
@@ -273,12 +299,34 @@ export function mountPasturePatrol({
     });
     const ring = part(scene, 'ring', 0, [SUCTION_RADIUS, SUCTION_RADIUS, 1], [0, 0.12, 0], ringMaterial);
     ring.rotation.x = -Math.PI / 2;
-    const playerShadow = shadow(scene, 0.8, 0, 0, 0.7);
+    const playerShadow = shadow(scene, 0.62);
+    // A flat disc foreshortens along the camera's ground direction. Undo that
+    // projection for the round shadow marker, but not the true ground pickup ring.
+    playerShadow.rotation.order = 'YXZ';
+    playerShadow.rotation.y = -Math.atan2(CAM_OFFSET.z, CAM_OFFSET.x);
+    playerShadow.scale.x *= CAM_OFFSET.length() / CAM_OFFSET.y;
 
     const entities: Entity[] = [];
     const effects: BurstEffect[] = [];
+    // One shared egg-blast shockwave. ponytail: a second blast within 0.4s restarts it; pool it if eggs ever chain.
+    const blastWave = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0, depthWrite: false }),
+    );
+    blastWave.visible = false;
+    scene.add(blastWave);
+    cleanups.push(() => {
+      blastWave.geometry.dispose();
+      blastWave.material.dispose();
+    });
+    let blastAge = 0;
     let health = MAX_HEALTH;
     let score = 0;
+    let abductions = 0;
+    let pressure = difficultyAt(1);
+    let combo = 1;
+    let chainUntil = -1;
+    let flockId = 0;
     let elapsed = 0;
     let cowTimer = 0;
     let obstacleTimer = 0;
@@ -288,7 +336,6 @@ export function mountPasturePatrol({
     let statusText = '';
     let statusUntil = 0;
     let flash = 0;
-    let lastLevel = 1;
     let paused = false;
 
     let unlockAbort: AbortController | null = null;
@@ -302,6 +349,11 @@ export function mountPasturePatrol({
       },
     });
     cleanups.push(() => audio.destroy());
+    const threats = createThreats({
+      scene, kit, miniature: models.miniature, audio, player, hover: HOVER, entities, burst, damage, status: setStatus,
+      spawnGunner: () => spawnAnimal('gunner'),
+    });
+    cleanups.push(() => threats.dispose());
     onState({ muted: audio.isMuted() });
 
     let stickActive = false;
@@ -339,11 +391,6 @@ export function mountPasturePatrol({
       stickY = 0;
       onState({ paused });
       audio.setActive(!paused && !ended);
-    }
-
-    function difficulty() {
-      const index = Math.min(MAX_LEVEL - 1, Math.floor(score / SCORE_PER_LEVEL));
-      return DIFFICULTY_LEVELS[index];
     }
 
     function pointIsSafe(p: THREE.Vector3, separation = 1.25) {
@@ -399,6 +446,7 @@ export function mountPasturePatrol({
         mesh,
         type,
         special,
+        scatter: 0,
         shadow: s,
         lift: 0,
         timer: 0,
@@ -413,21 +461,44 @@ export function mountPasturePatrol({
       return entity;
     }
 
-    function spawnCow(special = false, presetPlacement: { point: THREE.Vector3; anchor: Entity } | null = null) {
-      if (entities.filter((e) => e.type === 'cow').length >= COW_CAP) return null;
-      const placement = special ? presetPlacement ?? healerPoint() : null;
-      if (special && !placement) return null;
-      const { mesh, legs } = makeCow({ special });
-      const cow = addEntity(mesh, 'cow', special, placement?.point ?? null);
-      if (cow) {
-        cow.legs = legs;
-        if (placement) cow.anchor = placement.anchor;
+    function spawnAnimal(kind: Animal, point = freePoint(), special = false) {
+      if (!point) return null;
+      const { mesh, legs } = models.animal(kind, special);
+      const animal = addEntity(mesh, 'cow', special, point)!;
+      animal.animal = kind;
+      animal.legs = legs;
+      return animal;
+    }
+
+    function spawnHerd() {
+      if (entities.filter(e => e.type === 'cow' && e.animal !== 'gunner').length >= COW_CAP) return;
+      const kind = chooseAnimal(pressure.level);
+      const leader = spawnAnimal(kind);
+      if (!leader || kind !== 'sheep') return;
+      leader.flock = ++flockId;
+      const p = leader.mesh.position;
+      // Start the flock together without spawning a lamb in the beam or in debris.
+      for (let n = 0; n < 2; n++) {
+        for (let attempt = 0; attempt < 12; attempt++) {
+          const angle = random(0, Math.PI * 2);
+          const pt = new THREE.Vector3(p.x + Math.sin(angle), 0, p.z + Math.cos(angle));
+          if (!pointIsSafe(pt, 0.85)) continue;
+          const sheep = spawnAnimal('sheep', pt)!;
+          sheep.flock = leader.flock;
+          sheep.heading = leader.heading;
+          break;
+        }
       }
-      return cow;
+    }
+
+    function spawnHealer(placement = healerPoint()) {
+      if (!placement) return null;
+      const healer = spawnAnimal('cow', placement.point, true)!;
+      healer.anchor = placement.anchor;
+      return healer;
     }
 
     function spawnObstacle(kind: ObstacleKind | null = null) {
-      const pressure = difficulty();
       if (entities.filter((e) => e.type === 'obstacle').length >= pressure.obstacleCap) return null;
       if (
         kind !== 'hay' &&
@@ -449,7 +520,7 @@ export function mountPasturePatrol({
     }
 
     function spawnHay() {
-      if (entities.filter((e) => e.kind === 'hay').length >= difficulty().hayCap) return;
+      if (entities.filter((e) => e.kind === 'hay').length >= pressure.hayCap) return;
       const hay = spawnObstacle('hay');
       if (hay) {
         hay.heading = Math.atan2(-hay.mesh.position.x, -hay.mesh.position.z) + random(-0.4, 0.4);
@@ -462,7 +533,10 @@ export function mountPasturePatrol({
       onState({
         score,
         health,
-        level: difficulty().level,
+        level: pressure.level,
+        abductions,
+        nextLevelAt: pressure.nextLevelAt,
+        combo,
       });
     }
 
@@ -486,30 +560,62 @@ export function mountPasturePatrol({
 
     function collect(index: number) {
       const e = entities[index];
-      if (e.type === 'cow') {
-        score++;
-        const nextLevel = difficulty().level;
-        if (e.special) {
-          health = Math.min(MAX_HEALTH, health + HEAL);
-          setStatus('Sweet! +25 hull health');
-          audio.playHealCollect();
-        } else {
-          setStatus('Another happy passenger! +1');
-          audio.playCowCollect();
-        }
-        if (nextLevel > lastLevel) {
-          lastLevel = nextLevel;
-          audio.playLevelUp();
-        }
-        burst(ufo.position, e.special ? 0xffb8d7 : 0xffefaf);
-      } else {
-        health = Math.max(0, health - DAMAGE);
-        flash = 0.55;
-        setStatus('Ouch! Keep hazards out of the beam.');
-        audio.playDamage();
-        burst(ufo.position, 0xe68a65);
-      }
       removeEntity(index);
+      if (e.egg) {
+        // The egg goes off under the hull: blast there and knock the UFO off balance.
+        eggBlast(ufo.position.x, ufo.position.y - 0.6, ufo.position.z);
+        ufo.rotation.x += random(-0.5, 0.5);
+        ufo.rotation.z += random(-0.5, 0.5);
+        damage(DAMAGE, 'Egg bomb aboard! Give fresh eggs a wide berth.');
+        return;
+      }
+      if (!e.animal) {
+        damage(DAMAGE, 'Hazard aboard! Fly away to drop debris.');
+        return;
+      }
+      combo = elapsed <= chainUntil ? Math.min(MAX_COMBO, combo + 1) : 1;
+      chainUntil = elapsed + CHAIN_WINDOW;
+      const points = POINTS[e.animal] * combo;
+      score += points;
+      if (++abductions >= pressure.nextLevelAt) {
+        pressure = difficultyAt(pressure.level + 1);
+        audio.playLevelUp();
+      }
+      if (e.special) {
+        health = Math.min(MAX_HEALTH, health + HEAL);
+        setStatus(`Healer aboard! +25 hull · +${points} points`);
+        audio.playHealCollect();
+      } else {
+        const name = e.animal === 'gunner' ? 'Bazooka cow' : e.animal[0].toUpperCase() + e.animal.slice(1);
+        setStatus(`${name} aboard! +${points}`);
+        if (e.animal === 'cow' || e.animal === 'gunner') audio.playCowCollect();
+        else audio.playAnimalCollect(e.animal);
+      }
+      if (combo > 1) audio.playCombo(combo);
+      burst(ufo.position, e.special ? 0xffb8d7 : 0xffefaf);
+      syncHud();
+    }
+
+    function eggBlast(x: number, y: number, z: number) {
+      blastWave.position.set(x, y, z);
+      blastWave.scale.setScalar(0.3);
+      blastWave.visible = true;
+      blastAge = 0;
+      burst(blastWave.position, 0xffe9a8);
+      burst(blastWave.position, 0xfff6e0);
+      burst(blastWave.position, 0xff8c2f);
+      audio.playMortarImpact();
+    }
+
+    function damage(amount: number, text: string) {
+      if (ended) return;
+      health = Math.max(0, health - amount);
+      combo = 1;
+      chainUntil = -1;
+      flash = 0.55;
+      setStatus(`${text} −${amount} hull`);
+      audio.playDamage();
+      burst(ufo.position, 0xe68a65);
       syncHud();
       if (health === 0) {
         ended = true;
@@ -523,10 +629,16 @@ export function mountPasturePatrol({
       while (entities.length) removeEntity(entities.length - 1);
       for (const effect of effects) scene.remove(effect.mesh);
       effects.length = 0;
+      blastWave.visible = false;
       health = MAX_HEALTH;
       score = elapsed = cowTimer = obstacleTimer = flash = 0;
       specialTimer = hayTimer = 0;
-      lastLevel = 1;
+      abductions = 0;
+      pressure = difficultyAt(1);
+      threats.reset();
+      combo = 1;
+      chainUntil = -1;
+      flockId = 0;
       ended = false;
       setPaused(false);
       player.set(0, 0, 0);
@@ -539,13 +651,13 @@ export function mountPasturePatrol({
       ufo.rotation.set(0, 0, 0);
       onState({ ended: false });
       for (let i = 0; i < 7; i++) spawnObstacle();
-      spawnCow(true);
-      for (let i = 0; i < 9; i++) spawnCow();
+      spawnHealer();
+      for (let i = 0; i < 9; i++) spawnHerd();
       syncHud();
       setStatus(
         audio.isLocked()
           ? 'Steer to explore · Tap or click for sound'
-          : 'Beam on. Gather cows, drop hazards.',
+          : 'Beam on. Gather animals, drop hazards.',
       );
     }
 
@@ -662,12 +774,21 @@ export function mountPasturePatrol({
       let x = Math.sin(cow.heading);
       let z = Math.cos(cow.heading);
       const p = cow.mesh.position;
+      // A kick-ready goat charges debris instead of avoiding it.
+      const chargesDebris = cow.animal === 'goat' && cow.trickWait !== undefined && cow.trickWait <= 0;
       for (const other of entities) {
         if (other === cow || other.lift > 0 || other.retiring > 0) continue;
+        if (chargesDebris && other.type === 'obstacle' && other.kind !== 'hay') continue;
         const dx = p.x - other.mesh.position.x;
         const dz = p.z - other.mesh.position.z;
         const distance = Math.hypot(dx, dz);
-        const radius = other.type === 'cow' ? 1.9 : 1.6;
+        const flockmate = cow.flock !== undefined && cow.flock === other.flock;
+        if (flockmate && distance > 1 && !cow.scatter) {
+          const pull = Math.min(2, distance - 1) / distance;
+          x -= dx * pull;
+          z -= dz * pull;
+        }
+        const radius = flockmate ? 0.92 : other.type === 'cow' ? 1.9 : 1.6;
         if (distance > 0.001 && distance < radius) {
           const strength = (1 - distance / radius) * 2.8;
           x += (dx / distance) * strength;
@@ -692,7 +813,7 @@ export function mountPasturePatrol({
             let dx = ap.x - bp.x;
             let dz = ap.z - bp.z;
             const distance = Math.hypot(dx, dz);
-            const spacing = aw && bw ? COW_SPACING : 1.05;
+            const spacing = a.flock && a.flock === b.flock ? 0.86 : aw && bw ? COW_SPACING : 1.05;
             if (distance >= spacing) continue;
             if (distance < 0.001) {
               const angle = (i * 17 + j * 31) * 2.39996;
@@ -713,9 +834,116 @@ export function mountPasturePatrol({
       for (const e of grounded) e.shadow.position.set(e.mesh.position.x, 0.12, e.mesh.position.z);
     }
 
+    // Every so often a goat kicks debris at the UFO: a calm goat walks up to nearby debris, a fleeing one runs
+    // for debris ahead of it and kicks anything it bumps. Returns the debris the goat is heading for.
+    function goatTarget(goat: Entity, dt: number, fleeing: boolean) {
+      if ((goat.trickWait = (goat.trickWait ?? random(3, 5)) - dt) > 0) return undefined;
+      const p = goat.mesh.position;
+      let best: Entity | undefined;
+      let bestDistance = fleeing ? 4 : 5;
+      for (const e of entities) {
+        if (e.type !== 'obstacle' || e.kind === 'hay' || e.lift > 0 || e.retiring || e.slide) continue;
+        const ox = e.mesh.position.x - p.x;
+        const oz = e.mesh.position.z - p.z;
+        const distance = Math.hypot(ox, oz);
+        if (fleeing && distance > 1.2 && ox * (p.x - player.x) + oz * (p.z - player.z) <= 0) continue;
+        if (distance < bestDistance) {
+          best = e;
+          bestDistance = distance;
+        }
+      }
+      if (!best) {
+        // A fleeing goat stays ready to kick the next debris it bumps into.
+        if (!fleeing) goat.trickWait = 2;
+        return undefined;
+      }
+      if (bestDistance > 1.2) return best;
+      const h = best.mesh.position;
+      // Aim the slide to stop where the UFO is now.
+      const reach = Math.min(6, Math.hypot(player.x - h.x, player.z - h.z));
+      best.heading = Math.atan2(player.x - h.x, player.z - h.z);
+      best.slide = Math.sqrt(2 * SLIDE_DRAG * reach);
+      goat.trickWait = random(4, 7);
+      burst(h, 0xb48a5a);
+      audio.playHayBounce();
+      setStatus('Goat kick! Debris incoming.');
+      return undefined;
+    }
+
+    function layEgg(chicken: Entity, dt: number) {
+      if (pressure.eggCap === 0) return;
+      if ((chicken.trickWait = (chicken.trickWait ?? random(2, 6)) - dt) > 0) return;
+      chicken.trickWait = random(pressure.eggGap, pressure.eggGap + 4);
+      if (entities.filter((e) => e.egg).length >= pressure.eggCap) return;
+      // Lay right at the hen's tail; she stops for a beat so it reads as hers.
+      const c = chicken.mesh.position;
+      const point = new THREE.Vector3(clamp(c.x - Math.sin(chicken.heading) * 0.35), 0, clamp(c.z - Math.cos(chicken.heading) * 0.35));
+      chicken.pause = 0.45;
+      // Scale a child so the shared lift/despawn code can keep driving the root's scale.
+      const mesh = new THREE.Group();
+      const model = models.miniature('egg');
+      model.scale.setScalar(1.5);
+      mesh.add(model);
+      const egg = addEntity(mesh, 'obstacle', false, point)!;
+      egg.egg = true;
+      egg.lifetime = random(3.2, 4.2);
+      burst(point, 0xfff6e0);
+      audio.playAnimalCollect('chicken');
+      setStatus('Egg bomb! It is light, so do not graze it.');
+    }
+
+    function moveAnimal(e: Entity, dx: number, dz: number, d: number, dt: number) {
+      if (e.mesh.userData.aiming) return;
+      if (e.pause) {
+        e.pause = Math.max(0, e.pause - dt);
+        return;
+      }
+      const p = e.mesh.position;
+      e.timer -= dt;
+      e.scatter = Math.max(0, e.scatter - dt);
+      const scared = d < FLEE_RADIUS;
+      if (scared && !e.wasScared && e.animal === 'cow' && e.age > 0.3) audio.playCowStartle();
+      e.wasScared = scared;
+      if (!e.scatter) {
+        const debris = e.animal === 'goat' ? goatTarget(e, dt, scared) : undefined;
+        if (e.animal === 'chicken') layEgg(e, dt);
+        if (debris) {
+          e.heading = Math.atan2(debris.mesh.position.x - p.x, debris.mesh.position.z - p.z);
+        } else if (scared) {
+          e.heading = Math.atan2(-dx, -dz) + Math.sin(elapsed * 4 + e.phase) * 0.65;
+        } else if (e.timer <= 0) {
+          e.heading += random(-1.8, 1.8);
+          e.timer = random(0.8, 2.5);
+        }
+        if (!scared && e.special && e.anchor) {
+          const ax = e.anchor.mesh.position.x - p.x;
+          const az = e.anchor.mesh.position.z - p.z;
+          const dist = Math.hypot(ax, az);
+          if (dist > 2) e.heading = Math.atan2(ax, az);
+          else if (dist < 1.5) e.heading = Math.atan2(-ax, -az);
+        }
+        steerAroundNeighbors(e);
+      }
+      if (Math.abs(p.x) > 6.6 && Math.sin(e.heading) * p.x > 0) e.heading = -e.heading;
+      if (Math.abs(p.z) > 6.6 && Math.cos(e.heading) * p.z > 0) e.heading = Math.PI - e.heading;
+      const pace = e.animal === 'chicken' ? 1.45 : e.animal === 'pig' ? 0.78 : 1;
+      const speed = pace * (scared || e.scatter ? pressure.fleeSpeed : COW_SPEED * (e.special ? 0.28 : 0.55));
+      p.x = clamp(p.x + Math.sin(e.heading) * speed * dt);
+      p.z = clamp(p.z + Math.cos(e.heading) * speed * dt);
+      const turn = e.heading - e.mesh.rotation.y;
+      e.mesh.rotation.y += Math.atan2(Math.sin(turn), Math.cos(turn)) * Math.min(1, dt * 7);
+      p.y += Math.abs(Math.sin(elapsed * (scared ? 15 : 9) + e.phase)) * 0.045;
+      if (e.legs) {
+        for (const leg of e.legs) leg.mesh.rotation.x = Math.sin(elapsed * 10 + leg.phase + e.phase) * 0.3;
+      }
+    }
+
     function update(dt: number) {
       elapsed += dt;
-      const pressure = difficulty();
+      if (combo > 1 && elapsed > chainUntil) {
+        combo = 1;
+        onState({ combo });
+      }
       flash = Math.max(0, flash - dt);
       if (elapsed > statusUntil && statusText !== 'Beam on. Watch what you pick up.') {
         statusText = 'Beam on. Watch what you pick up.';
@@ -762,6 +990,11 @@ export function mountPasturePatrol({
         const dx = player.x - p.x;
         const dz = player.z - p.z;
         const d = Math.hypot(dx, dz);
+        if (e.egg && e.age >= e.lifetime && e.lift === 0) {
+          eggBlast(p.x, 0.3, p.z);
+          removeEntity(i);
+          continue;
+        }
         if (e.type === 'obstacle' && !e.retiring && e.age >= e.lifetime && e.lift === 0 && d > SUCTION_RADIUS + 0.6) {
           e.retiring = Number.EPSILON;
         }
@@ -773,8 +1006,9 @@ export function mountPasturePatrol({
           if (e.retiring >= DESPAWN_DURATION) removeEntity(i);
           continue;
         }
-        if (d < SUCTION_RADIUS && e.age > 0.7) {
-          e.lift = Math.min(1, e.lift + dt * (e.type === 'cow' ? COW_LIFT_SPEED : HAZARD_LIFT_SPEED));
+        if (d < SUCTION_RADIUS + (e.egg ? EGG_GRAB_BONUS : 0) && e.age > 0.7) {
+          const liftSpeed = e.egg ? EGG_LIFT_SPEED : e.animal === 'pig' ? 0.83 : e.animal ? COW_LIFT_SPEED : pressure.hazardLift;
+          e.lift = Math.min(1, e.lift + dt * liftSpeed);
           e.wasScared = false;
           if (e.type === 'cow') maxCowLift = Math.max(maxCowLift, e.lift);
           else maxHazardLift = Math.max(maxHazardLift, e.lift);
@@ -792,45 +1026,14 @@ export function mountPasturePatrol({
           e.lift = Math.max(0, e.lift - dt * 2.5);
           p.y = e.lift * (HOVER - 0.4);
           e.mesh.scale.setScalar(1 - e.lift * 0.55);
+          if (e.egg && e.lift === 0) {
+            // Pop in as it is laid, then tick faster as the fuse runs out.
+            const fuse = e.lifetime - e.age;
+            const pulse = 1 + 0.12 * Math.abs(Math.sin(e.age * (fuse < 1.2 ? 22 : 8)));
+            e.mesh.scale.setScalar(pulse * Math.min(1, e.age / 0.25));
+          }
           if (e.type === 'cow' && e.lift === 0) {
-            e.timer -= dt;
-            if (e.timer <= 0) {
-              e.heading += random(-1.8, 1.8);
-              e.timer = random(0.8, 2.5);
-            }
-            const scared = d < FLEE_RADIUS;
-            if (scared && !e.wasScared && e.age > 0.3) audio.playCowStartle();
-            e.wasScared = scared;
-            if (scared) e.heading = Math.atan2(-dx, -dz) + Math.sin(elapsed * 4 + e.phase) * 0.65;
-            else if (e.special && e.anchor) {
-              const ax = e.anchor.mesh.position.x - p.x;
-              const az = e.anchor.mesh.position.z - p.z;
-              const anchorDist = Math.hypot(ax, az);
-              if (anchorDist > 2) e.heading = Math.atan2(ax, az);
-              else if (anchorDist < 1.5) e.heading = Math.atan2(-ax, -az);
-            }
-            steerAroundNeighbors(e);
-            if (Math.abs(p.x) > 6.6 && Math.sin(e.heading) * p.x > 0) e.heading = -e.heading;
-            if (Math.abs(p.z) > 6.6 && Math.cos(e.heading) * p.z > 0) e.heading = Math.PI - e.heading;
-            const speed = scared ? pressure.fleeSpeed : COW_SPEED * (e.special ? 0.28 : 0.55);
-            p.x += Math.sin(e.heading) * speed * dt;
-            p.z += Math.cos(e.heading) * speed * dt;
-            if (Math.abs(p.x) > 6.9 || Math.abs(p.z) > 6.9) {
-              e.heading = Math.atan2(-p.x, -p.z) + random(-0.5, 0.5);
-              p.x = clamp(p.x);
-              p.z = clamp(p.z);
-            }
-            const turn = Math.atan2(
-              Math.sin(e.heading - e.mesh.rotation.y),
-              Math.cos(e.heading - e.mesh.rotation.y),
-            );
-            e.mesh.rotation.y += turn * Math.min(1, dt * 7);
-            p.y += Math.abs(Math.sin(elapsed * (scared ? 15 : 9) + e.phase)) * 0.045;
-            if (e.legs) {
-              for (const leg of e.legs) {
-                leg.mesh.rotation.x = Math.sin(elapsed * 10 + leg.phase + e.phase) * 0.3;
-              }
-            }
+            moveAnimal(e, dx, dz, d, dt);
           } else if (e.kind === 'hay' && e.lift === 0) {
             p.x += Math.sin(e.heading) * pressure.haySpeed * dt;
             p.z += Math.cos(e.heading) * pressure.haySpeed * dt;
@@ -848,18 +1051,30 @@ export function mountPasturePatrol({
             if (bounced) audio.playHayBounce();
             e.mesh.rotation.y = e.heading;
             if (e.roller) e.roller.rotation.x += (pressure.haySpeed * dt) / 0.48;
+          } else if (e.slide && e.lift === 0) {
+            p.x = clamp(p.x + Math.sin(e.heading) * e.slide * dt);
+            p.z = clamp(p.z + Math.cos(e.heading) * e.slide * dt);
+            e.mesh.rotation.y += e.slide * dt * 2;
+            e.slide = Math.max(0, e.slide - SLIDE_DRAG * dt);
           }
         }
         e.shadow.position.set(p.x, 0.12, p.z);
         e.shadow.scale.setScalar(Math.max(0.15, 0.55 * (1 - e.lift)));
       }
 
+      if (!ended) threats.update(dt, pressure.level);
       audio.update(dt, {
         speedNorm,
         cowLift: ended ? 0 : maxCowLift,
         hazardLift: ended ? 0 : maxHazardLift,
       });
       if (!ended) separateGroundedCows(dt);
+      if (blastWave.visible) {
+        blastAge += dt;
+        blastWave.scale.setScalar(0.3 + blastAge * 5);
+        blastWave.material.opacity = 0.6 * Math.max(0, 1 - blastAge / 0.4);
+        blastWave.visible = blastAge < 0.4;
+      }
       for (let i = effects.length - 1; i >= 0; i--) {
         const effect = effects[i];
         effect.life -= dt;
@@ -879,7 +1094,7 @@ export function mountPasturePatrol({
       hayTimer += dt;
       if (cowTimer >= COW_INTERVAL) {
         cowTimer = 0;
-        spawnCow();
+        spawnHerd();
       }
       if (hayTimer >= pressure.hayInterval) {
         hayTimer = 0;
@@ -889,23 +1104,8 @@ export function mountPasturePatrol({
         obstacleTimer = 0;
         spawnObstacle();
       }
-      if (specialTimer >= SPECIAL_INTERVAL) {
-        if (!entities.some((e) => e.special)) {
-          const placement = healerPoint();
-          if (placement) {
-            const cowCount = entities.filter((e) => e.type === 'cow').length;
-            if (cowCount >= COW_CAP) {
-              const normal = entities.findIndex((e) => e.type === 'cow' && !e.special && e.lift === 0);
-              if (normal >= 0) removeEntity(normal);
-            }
-            if (spawnCow(true, placement)) specialTimer = 0;
-            else specialTimer = SPECIAL_INTERVAL - 1;
-          } else {
-            specialTimer = SPECIAL_INTERVAL - 1;
-          }
-        } else {
-          specialTimer = 0;
-        }
+      if (specialTimer >= pressure.healerInterval) {
+        specialTimer = entities.some(e => e.special) || spawnHealer() ? 0 : pressure.healerInterval - 1;
       }
     }
 

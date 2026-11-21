@@ -1,31 +1,62 @@
 <script lang="ts">
   import { PauseIcon, PlayIcon, RefreshIcon, VolumeHighIcon, VolumeOffIcon } from '@hugeicons/core-free-icons';
   import Icon from '../../components/Icon.svelte';
-  import { MAX_LEVEL, mountPasturePatrol, type PastureController, type PastureHudState } from './game';
+  import { mountPasturePatrol, type PastureController, type PastureHudState } from './game';
 
   const PAD_RADIUS = 56;
   const MAX_TRAVEL = 38;
+  const fieldGuide = [
+    ['cow', 'Cow', 1, '+1 point. Hover until your beam lifts it aboard.'],
+    ['chicken', 'Chicken', 1, '+1 point. From level 3 it drops egg bombs: so light that grazing one pulls it aboard. They pop after a few seconds.'],
+    ['healer', 'Pink cow', 1, '+25 hull. A healer arrives every 12 seconds, a little less often each level.'],
+    ['hazards', 'Loose hazards', 1, '−20 hull if collected. Fly away to drop them.'],
+    ['goat', 'Goat', 2, '+2 points. Now and then it kicks nearby debris at your UFO.'],
+    ['sheep', 'Sheep', 2, '+1 point each. Flocks are good for chaining captures.'],
+    ['pumpkin', 'Pumpkin mortar', 2, 'Dodge out of the marked ring before the pumpkin lands.'],
+    ['pig', 'Pig', 3, '+3 points. Keep it in the beam a little longer.'],
+    ['bee', 'Bees', 3, 'Keep moving. The swarm chases you but soon disperses.'],
+    ['tractor', 'Tractor', 4, 'Watch for its flash. It pushes loose hazards into your path.'],
+    ['gunner', 'Bazooka cow', 5, '+4 points. Fires corn along its aim line; sidestep once the line turns gold, or beam it up.'],
+  ] as const;
 
   let viewportEl = $state<HTMLDivElement | undefined>(undefined);
   let controlZoneEl = $state<HTMLDivElement | undefined>(undefined);
   let restartBtnEl = $state<HTMLButtonElement | undefined>(undefined);
+  let guideEl: HTMLDialogElement;
+  let resumeAfterGuide = false;
+
+  function openGuide() {
+    if (!controller || hud.ended) return;
+    resumeAfterGuide = !hud.paused;
+    if (resumeAfterGuide) controller.togglePause();
+    guideEl.showModal();
+  }
+
+  function closeGuide() {
+    if (resumeAfterGuide && hud.paused) controller?.togglePause();
+    resumeAfterGuide = false;
+  }
+
+  function handleGuideKey(event: KeyboardEvent) {
+    // Let the native dialog handle Escape without also toggling the game's pause.
+    if (guideEl.open && event.key === 'Escape') event.stopImmediatePropagation();
+  }
 
   let controller: PastureController | null = null;
   let errorMessage = $state('');
 
   let hud = $state<PastureHudState>({
     score: 0,
+    combo: 1,
+    abductions: 0,
+    nextLevelAt: 10,
     health: 100,
     level: 1,
     status: '',
     paused: false,
     ended: false,
     muted: false,
-    legends: {
-      cow: '',
-      healer: '',
-      hazards: '',
-    },
+    legends: {},
   });
 
   // Floating circular axis pad state
@@ -129,6 +160,8 @@
   });
 </script>
 
+<svelte:window onkeydowncapture={handleGuideKey} />
+
 <div class="relative h-full w-full overflow-hidden bg-canvas text-ink select-none" aria-label="Pasture Patrol game">
   <!-- Subtle twilight vignette + dot grid behind the transparent 3D diorama -->
   <div
@@ -150,7 +183,7 @@
       <!-- Unified Score + Hull Telemetry -->
       <section
         aria-label="Game status"
-        class="pointer-events-auto flex items-center gap-3 rounded-md border border-[rgba(213,215,207,0.12)] bg-surface/85 px-3 py-2 backdrop-blur-md sm:gap-4 sm:px-3.5"
+        class="flex items-center gap-2 rounded-md border border-[rgba(213,215,207,0.12)] bg-surface/85 px-2 py-2 backdrop-blur-md sm:gap-4 sm:px-3.5"
       >
         <div class="flex flex-col">
           <span class="font-mono text-[9px] tracking-[0.12em] text-ink-dim uppercase">Score</span>
@@ -158,13 +191,14 @@
             <strong class="font-mono text-xl leading-none font-semibold text-ink sm:text-2xl">
               {String(hud.score).padStart(2, '0')}
             </strong>
-            <span class="font-mono text-[9px] tracking-wider text-ink-dim uppercase">cows</span>
+            <span class="font-mono text-[9px] tracking-wider text-ink-dim uppercase">pts</span>
+            <span class="font-mono text-xs font-semibold text-sage" aria-label="Score multiplier ×{hud.combo}">×{hud.combo}</span>
           </div>
         </div>
 
         <div class="h-7 w-px bg-[rgba(213,215,207,0.1)]" aria-hidden="true"></div>
 
-        <div class="flex min-w-[116px] flex-col sm:min-w-[152px]">
+        <div class="flex min-w-[64px] flex-col sm:min-w-[152px]">
           <div class="flex items-baseline justify-between gap-2 font-mono text-[9px] tracking-[0.1em] uppercase">
             <span class="text-ink-dim">Hull</span>
             <span class="text-[11px] font-semibold {hud.health <= 40 ? 'text-[#c97a66]' : 'text-ink'}">
@@ -187,8 +221,8 @@
             ></div>
           </div>
           <div class="mt-1 flex items-center justify-between font-mono text-[8.5px] tracking-wider text-ink-dim uppercase">
-            <span>Pressure</span>
-            <span class="text-ink-muted">{hud.level} / {MAX_LEVEL}</span>
+            <span>Lv {hud.level}</span>
+            <span class="text-ink-muted" title="Abductions toward the next level">{hud.abductions}/{hud.nextLevelAt}</span>
           </div>
         </div>
       </section>
@@ -206,6 +240,7 @@
 
       <!-- Compact Audio + Pause controls -->
       <div class="pointer-events-auto flex shrink-0 items-center gap-1.5">
+        <button type="button" class="pp-btn h-9 rounded-sm border border-sage/35 bg-surface/85 px-2 font-mono text-[11px] text-ink" aria-haspopup="dialog" aria-label="Open field guide" onclick={openGuide}>Guide</button>
         <button
           type="button"
           class="pp-btn inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-sm border border-[rgba(213,215,207,0.12)] bg-surface/85 px-2.5 font-mono text-[11px] backdrop-blur-md transition-colors hover:border-[rgba(213,215,207,0.26)] hover:bg-surface-raised {hud.muted
@@ -226,6 +261,7 @@
           class="pp-btn inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-sm border border-[rgba(213,215,207,0.12)] bg-surface/85 px-2.5 font-mono text-[11px] text-ink backdrop-blur-md transition-colors hover:border-[rgba(213,215,207,0.26)] hover:bg-surface-raised disabled:cursor-default disabled:opacity-45"
           disabled={hud.ended}
           aria-controls="pasture-pause-panel"
+          aria-label={hud.paused ? 'Resume flight' : 'Pause flight'}
           aria-pressed={hud.paused}
           aria-keyshortcuts="Escape"
           onclick={() => controller?.togglePause()}
@@ -280,58 +316,51 @@
     </div>
   </div>
 
-  <!-- Bottom legend and desktop hint -->
-  <footer
-    class="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex items-end justify-center gap-3 px-3 pb-3 sm:px-4 sm:pb-4 lg:justify-between"
-    style="padding-bottom: max(12px, env(safe-area-inset-bottom));"
-  >
-    <div
-      aria-label="Collection and hazard guide"
-      class="flex items-center gap-3 rounded-md border border-[rgba(213,215,207,0.1)] bg-surface/82 px-2.5 py-1.5 backdrop-blur-md sm:gap-4 sm:px-3.5 sm:py-2"
-    >
-      <div class="flex items-center gap-1.5 sm:gap-2">
-        {#if hud.legends.cow}
-          <img src={hud.legends.cow} alt="normal cow model" class="h-7 w-7 object-contain sm:h-9 sm:w-9" />
-        {/if}
-        <div class="leading-tight">
-          <strong class="block font-mono text-[9px] tracking-wider text-ink uppercase">Cow</strong>
-          <small class="font-mono text-[9px] text-sage">+1</small>
-        </div>
-      </div>
-
-      <div class="h-6 w-px bg-[rgba(213,215,207,0.08)]" aria-hidden="true"></div>
-
-      <div class="flex items-center gap-1.5 sm:gap-2">
-        {#if hud.legends.healer}
-          <img src={hud.legends.healer} alt="pink healer cow model" class="h-7 w-7 object-contain sm:h-9 sm:w-9" />
-        {/if}
-        <div class="leading-tight">
-          <strong class="block font-mono text-[9px] tracking-wider text-ink uppercase">Pink</strong>
-          <small class="font-mono text-[9px] text-[#c995a8]">+25 hp</small>
-        </div>
-      </div>
-
-      <div class="h-6 w-px bg-[rgba(213,215,207,0.08)]" aria-hidden="true"></div>
-
-      <div class="flex items-center gap-1.5 sm:gap-2">
-        {#if hud.legends.hazards}
-          <img
-            src={hud.legends.hazards}
-            alt="Rock, stump, crate, and rolling hay bale"
-            class="h-7 w-14 object-contain sm:h-9 sm:w-18"
-          />
-        {/if}
-        <div class="leading-tight">
-          <strong class="block font-mono text-[9px] tracking-wider text-ink uppercase">Hazards</strong>
-          <small class="font-mono text-[9px] text-[#c97a66]">-20 hp</small>
-        </div>
-      </div>
-    </div>
-
-    <p class="m-0 hidden rounded-md border border-[rgba(213,215,207,0.08)] bg-surface/75 px-3 py-2 font-mono text-[10.5px] text-ink-dim backdrop-blur-md lg:block">
-      Cursor steers · Beam always on · Fly away to drop hazards
+  <footer class="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex items-end justify-center gap-3 px-4 lg:justify-between">
+    <ul aria-label="Quick field guide" class="m-0 hidden list-none items-center gap-4 rounded-md border border-sage/20 bg-surface/85 px-3 py-1 lg:flex">
+      {#each [['cow', 'Cow', '+1 pt'], ['healer', 'Pink cow', '+25 hull'], ['hazards', 'Debris', '−20 hull']] as [key, name, value] (key)}
+        <li class="flex items-center gap-1.5 font-mono text-[10px]">
+          {#if hud.legends[key]}
+            <img src={hud.legends[key]} alt="" class="h-9 object-contain" class:w-9={key !== 'hazards'} class:w-14={key === 'hazards'} />
+          {/if}
+          <span>{name}<small class="block text-ink-muted">{value}</small></span>
+        </li>
+      {/each}
+    </ul>
+    <p class="m-0 text-center font-mono text-[10px] text-ink-muted lg:rounded-md lg:bg-surface/85 lg:px-3 lg:py-2">
+      <span class="hidden md:inline">Cursor steers</span><span class="md:hidden">Slide below to steer</span> · Beam always on
     </p>
   </footer>
+
+  <dialog bind:this={guideEl} onclose={closeGuide} aria-labelledby="pasture-guide-title"
+    class="m-auto max-h-[min(85dvh,44rem)] w-[min(34rem,calc(100%-2rem))] overflow-y-auto overscroll-contain rounded-md border border-sage/35 bg-surface p-0 text-ink shadow-2xl backdrop:bg-black/65">
+    <header class="sticky top-0 flex items-center justify-between gap-3 border-b border-sage/20 bg-surface px-4 py-2">
+      <div>
+        <p class="m-0 font-mono text-[10px] tracking-widest text-sage uppercase">Flight paused</p>
+        <h2 id="pasture-guide-title" class="m-0 text-lg font-semibold">Field guide</h2>
+      </div>
+      <button type="button" class="pp-btn rounded-sm border border-sage/40 px-3 py-2 font-mono text-xs" onclick={() => guideEl.close()}>Close guide</button>
+    </header>
+    <div class="space-y-3 px-4 py-3 text-sm">
+      <p>Steer with your cursor or drag in the lower touch zone. Your beam is always on: hover over a critter to collect it.</p>
+      <p><strong class="text-sage">Level progress:</strong> Every abduction counts once. Levels 2–7 start at 10, 25, 45, 70, 100, and 135 abductions. Extra points and combos don’t speed up unlocks.</p>
+      <p>Threats give you breathers between attacks. Use a quiet stretch to finish a capture or look for a pink cow.</p>
+      <p><strong class="text-sage">Chain bonus:</strong> Make your next capture within 2.5 seconds to raise the score multiplier by one, up to ×4. A missed window or hull damage resets it to ×1.</p>
+      <ul class="grid list-none gap-2 p-0 sm:grid-cols-2">
+        {#each fieldGuide as [key, name, level, note] (key)}
+          <li class="flex items-center gap-2 rounded-sm border border-sage/15 p-2">
+            {#if hud.legends[key]}
+              <img src={hud.legends[key]} alt="" class="h-11 w-12 shrink-0 object-contain" />
+            {/if}
+            <div>
+              <strong class="text-sm">{name}</strong> <span class="font-mono text-[10px] text-sage">L{level}</span>
+              <p class="m-0 text-xs leading-snug text-ink-muted">{note}</p>
+            </div>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  </dialog>
 
   <!-- Pause overlay -->
   {#if hud.paused && !hud.ended}
@@ -352,6 +381,7 @@
           <Icon icon={PlayIcon} size={13} strokeWidth={1.9} />
           <span>Resume</span>
         </button>
+        <button type="button" class="pp-btn mt-3 block w-full py-2 font-mono text-xs text-sage" aria-haspopup="dialog" onclick={openGuide}>Field guide</button>
       </div>
     </div>
   {/if}
@@ -381,7 +411,7 @@
         <div class="flex items-baseline justify-center gap-2.5 rounded-sm border border-[rgba(213,215,207,0.08)] bg-canvas/70 py-3 font-mono">
           <span class="text-[10px] tracking-[0.12em] text-ink-dim uppercase">Score</span>
           <strong class="text-3xl font-semibold text-ink">{hud.score}</strong>
-          <span class="text-[10px] tracking-wider text-sage uppercase">cows</span>
+          <span class="text-[10px] tracking-wider text-sage uppercase">points</span>
         </div>
 
         <button

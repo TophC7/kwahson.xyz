@@ -24,7 +24,7 @@ const ALIEN_GLIDES: [number, number, number][] = [
   [587.33, 659.25, 587.33],
 ];
 
-interface PastureAudio {
+export interface PastureAudio {
   isMuted(): boolean;
   isLocked(): boolean;
   setMuted(next: boolean): boolean;
@@ -33,11 +33,20 @@ interface PastureAudio {
   setHidden(next: boolean): void;
   update(dt: number, state?: { speedNorm?: number; cowLift?: number; hazardLift?: number }): void;
   playCowCollect(): void;
+  playAnimalCollect(kind: 'chicken' | 'goat' | 'pig' | 'sheep'): void;
+  playCombo(multiplier: number): void;
   playHealCollect(): void;
   playDamage(): void;
   playCowStartle(): void;
   playHaySpawn(): void;
   playHayBounce(): void;
+  playMortarLaunch(): void;
+  playMortarImpact(): void;
+  playCornAim(): void;
+  playCornLaunch(): void;
+  playTractorRumble(): void;
+  playBeeSwarm(): void;
+  playBeeSting(): void;
   playLevelUp(): void;
   playGameOver(): void;
   playUiClick(bright?: boolean): void;
@@ -66,6 +75,7 @@ export function createAudio({ onUnlock }: { onUnlock?: () => void } = {}): Pastu
   let ctx: AudioContext | null = null;
   let masterGain: GainNode | null = null;
   let sfxGain: GainNode | null = null;
+  let tractorBus: GainNode | null = null;
   let noiseBuffer: AudioBuffer | null = null;
   let layers: AmbientLayers | null = null;
 
@@ -358,6 +368,11 @@ export function createAudio({ onUnlock }: { onUnlock?: () => void } = {}): Pastu
     setMuted(next) {
       muted = Boolean(next);
       saveMuted(STORAGE_KEY, muted);
+      if (muted && tractorBus && ctx) {
+        // Fade scheduled engine pulses without bringing them back on a quick unmute.
+        tractorBus.gain.setTargetAtTime(0, ctx.currentTime, 0.01);
+        tractorBus = null;
+      }
       if (!muted) unlock(true);
       syncPowerState();
       return muted;
@@ -425,6 +440,33 @@ export function createAudio({ onUnlock }: { onUnlock?: () => void } = {}): Pastu
       playTone({ freq: root * jitter, type: 'triangle', gain: 0.1, attack: 0.008, duration: 0.15, delay: 0.02 });
       playTone({ freq: fifth * jitter, type: 'sine', gain: 0.09, attack: 0.008, duration: 0.22, delay: 0.075 });
     },
+    playAnimalCollect(kind) {
+      if (!canPlaySfx()) return;
+      switch (kind) {
+        case 'chicken':
+          playTone({ freq: 820, endFreq: 410, type: 'triangle', gain: 0.1, duration: 0.06 });
+          playTone({ freq: 980, endFreq: 520, type: 'triangle', gain: 0.09, duration: 0.09, delay: 0.07 });
+          break;
+        case 'goat':
+          for (let i = 0; i < 3; i++) {
+            playTone({ freq: 275 + i * 16, endFreq: 236, type: 'sawtooth', filterFreq: 820, gain: 0.095, duration: 0.09, delay: i * 0.05 });
+          }
+          break;
+        case 'pig':
+          playTone({ freq: 172, endFreq: 92, type: 'triangle', gain: 0.12, duration: 0.17 });
+          playNoiseBurst({ freq: 620, endFreq: 260, filterType: 'bandpass', gain: 0.1, duration: 0.12 });
+          break;
+        case 'sheep':
+          playTone({ freq: 335, endFreq: 250, type: 'triangle', gain: 0.1, attack: 0.035, duration: 0.23 });
+          playTone({ freq: 355, endFreq: 270, gain: 0.055, attack: 0.025, duration: 0.18, delay: 0.075 });
+          break;
+      }
+    },
+    playCombo(multiplier) {
+      if (!canPlaySfx()) return;
+      const freq = 660 * 2 ** ((Math.min(8, Math.max(1, multiplier)) - 1) / 7);
+      playTone({ freq, endFreq: freq * 1.25, type: 'triangle', gain: 0.075, duration: 0.09 });
+    },
     playHealCollect() {
       if (!canPlaySfx()) return;
       HEAL_CHORD.forEach((freq, i) => {
@@ -468,6 +510,48 @@ export function createAudio({ onUnlock }: { onUnlock?: () => void } = {}): Pastu
       playTone({ freq: 145, endFreq: 85, type: 'sine', gain: 0.055, attack: 0.005, duration: 0.08 });
       playNoiseBurst({ gain: 0.04, duration: 0.04, filterType: 'bandpass', freq: 720, endFreq: 420, q: 1.4 });
     },
+    playMortarLaunch() {
+      if (!canPlaySfx()) return;
+      playTone({ freq: 155, endFreq: 76, type: 'triangle', gain: 0.11, duration: 0.14 });
+      playTone({ freq: 410, endFreq: 1030, gain: 0.055, attack: 0.23, duration: 0.52, delay: 0.035 });
+    },
+    playMortarImpact() {
+      if (!canPlaySfx()) return;
+      playNoiseBurst({ freq: 980, endFreq: 180, gain: 0.18, duration: 0.18 });
+      playTone({ freq: 136, endFreq: 62, type: 'triangle', gain: 0.13, duration: 0.2 });
+    },
+    playCornAim() {
+      if (!canPlaySfx()) return;
+      playTone({ freq: 275, endFreq: 940, type: 'triangle', gain: 0.065, attack: 1.15, duration: 1.25 });
+    },
+    playCornLaunch() {
+      if (!canPlaySfx()) return;
+      // Bazooka thoomp plus the shell's whoosh.
+      playTone({ freq: 180, endFreq: 70, type: 'triangle', gain: 0.14, attack: 0.005, duration: 0.18 });
+      playNoiseBurst({ freq: 1400, endFreq: 420, gain: 0.1, duration: 0.3 });
+    },
+    playTractorRumble() {
+      if (!canPlaySfx() || !ctx || !sfxGain) return;
+      if (!tractorBus) {
+        tractorBus = ctx.createGain();
+        tractorBus.connect(sfxGain);
+      }
+      playTone({ bus: tractorBus, freq: 78, endFreq: 103, type: 'triangle', gain: 0.08, attack: 1.4, duration: 2.5 });
+      for (let i = 0; i < 18; i++) {
+        const pass = Math.sin(Math.PI * (i + 1) / 19);
+        playTone({ bus: tractorBus, freq: 112 + pass * 18, endFreq: 73, type: 'sawtooth', gain: 0.015 + pass * 0.035, duration: 0.14, delay: i * 0.138 });
+      }
+    },
+    playBeeSwarm() {
+      if (!canPlaySfx()) return;
+      for (const freq of [205, 214, 223]) {
+        playTone({ freq, endFreq: freq * 1.45, type: 'sawtooth', gain: 0.024, attack: 0.24, duration: 0.68 });
+      }
+    },
+    playBeeSting() {
+      if (!canPlaySfx()) return;
+      playTone({ freq: 1620, endFreq: 630, type: 'square', gain: 0.05, attack: 0.003, duration: 0.055 });
+    },
     playLevelUp() {
       if (!canPlaySfx()) return;
       [440, 554.37, 659.25].forEach((freq, i) => {
@@ -494,6 +578,7 @@ export function createAudio({ onUnlock }: { onUnlock?: () => void } = {}): Pastu
       if (destroyed) return;
       destroyed = true;
       layers = null;
+      tractorBus = null;
       if (ctx) {
         ctx.onstatechange = null;
         ctx.close().catch(() => {});
