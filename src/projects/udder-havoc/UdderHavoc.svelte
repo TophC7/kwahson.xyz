@@ -23,15 +23,23 @@
     buildUdderGalleryModel,
   } from './models';
   import PowerupIcon from './PowerupIcon.svelte';
-  import { mountUdderHavoc, type ArenaController, type ArenaHudState } from './scene';
+  import { mountUdderHavoc, type AimMode, type ArenaController, type ArenaHudState } from './scene';
 
-  const PAD_RADIUS = 52;
-  const MAX_TRAVEL = 34;
+  const PAD_RADIUS = 50;
+  const MAX_TRAVEL = 32;
+
+  interface TouchPadState {
+    el?: HTMLDivElement;
+    pointerId: number | null;
+    pad: { x: number; y: number } | null;
+    knobX: number;
+    knobY: number;
+  }
 
   let viewportEl = $state<HTMLDivElement | undefined>(undefined);
-  let controlZoneEl = $state<HTMLDivElement | undefined>(undefined);
   let controller: ArenaController | null = null;
   let failed = $state(false);
+  let touchUi = $state(false);
 
   let hud = $state<ArenaHudState>({
     seed: 0,
@@ -70,23 +78,27 @@
       magnet: 0,
     },
     pendingChoices: null,
-    autoAim: false,
+    aimMode: 'cursor' as AimMode,
     paused: false,
     ended: false,
     muted: false,
     status: '',
   });
 
-  let activePointerId = $state<number | null>(null);
-  let pad = $state<{ x: number; y: number } | null>(null);
-  let knobX = $state(0);
-  let knobY = $state(0);
-  let chargeHeld = $state(false);
+  let movePad = $state<TouchPadState>({ pointerId: null, pad: null, knobX: 0, knobY: 0 });
+  let aimPad = $state<TouchPadState>({ pointerId: null, pad: null, knobX: 0, knobY: 0 });
   let pickSeason = $state<Season | 'auto'>('auto');
   let pickDaytime = $state<DayTime | 'auto'>('auto');
   let pickLayout = $state<ArenaLayout | 'auto'>('auto');
   let showGallery = $state(galleryLinked());
   let resumeAfterGallery = false;
+
+  const effectiveAimMode = $derived<AimMode>(
+    touchUi && hud.aimMode === 'cursor' ? 'charge' : hud.aimMode,
+  );
+  const aimModeLabel = $derived(
+    effectiveAimMode === 'auto' ? 'Auto' : effectiveAimMode === 'charge' ? 'Charge' : 'Cursor',
+  );
 
   function setGalleryOpen(open: boolean) {
     if (open) {
@@ -121,46 +133,80 @@
     return `${m}:${s}`;
   });
 
-  function updateStick(clientX: number, clientY: number) {
-    if (!pad || !controlZoneEl) return;
-    const rect = controlZoneEl.getBoundingClientRect();
-    const dx = clientX - rect.left - pad.x;
-    const dy = clientY - rect.top - pad.y;
-    const dist = Math.hypot(dx, dy);
-    const clamped = Math.min(dist, MAX_TRAVEL);
-    const angle = Math.atan2(dy, dx);
-    knobX = dist > 0 ? Math.cos(angle) * clamped : 0;
-    knobY = dist > 0 ? Math.sin(angle) * clamped : 0;
-    controller?.setStickInput(knobX / MAX_TRAVEL, knobY / MAX_TRAVEL, true);
+  function padState(which: 'move' | 'aim'): TouchPadState {
+    return which === 'move' ? movePad : aimPad;
   }
 
-  function handleZoneDown(e: PointerEvent) {
-    if (e.pointerType === 'mouse' || hud.paused || hud.ended || hud.pendingChoices) return;
-    if (activePointerId !== null || !controlZoneEl) return;
-    const rect = controlZoneEl.getBoundingClientRect();
-    activePointerId = e.pointerId;
-    controlZoneEl.setPointerCapture(e.pointerId);
-    pad = {
-      x: Math.max(PAD_RADIUS, Math.min(rect.width - PAD_RADIUS, e.clientX - rect.left)),
-      y: Math.max(PAD_RADIUS, Math.min(rect.height - PAD_RADIUS, e.clientY - rect.top)),
+  function pushPadInput(which: 'move' | 'aim', nx: number, ny: number, active: boolean) {
+    if (which === 'move') {
+      controller?.setStickInput(nx, ny, active);
+    } else {
+      controller?.setChargeInput(active);
+      controller?.setAimStickInput(nx, ny, active);
+    }
+  }
+
+  function resetPad(which: 'move' | 'aim') {
+    const state = padState(which);
+    state.pointerId = null;
+    state.pad = null;
+    state.knobX = 0;
+    state.knobY = 0;
+    pushPadInput(which, 0, 0, false);
+  }
+
+  function handlePadDown(which: 'move' | 'aim', e: PointerEvent) {
+    if (hud.paused || hud.ended || hud.pendingChoices) return;
+    const state = padState(which);
+    if (state.pointerId !== null || !state.el) return;
+    const rect = state.el.getBoundingClientRect();
+    const margin = PAD_RADIUS + 8;
+    const rawX = e.clientX - rect.left;
+    const rawY = e.clientY - rect.top;
+    state.pointerId = e.pointerId;
+    state.el.setPointerCapture(e.pointerId);
+    state.pad = {
+      x: Math.min(Math.max(margin, rawX), Math.max(margin, rect.width - margin)),
+      y: Math.min(Math.max(margin, rawY), Math.max(margin, rect.height - margin)),
     };
-    knobX = 0;
-    knobY = 0;
-    controller?.setStickInput(0, 0, true);
+    state.knobX = 0;
+    state.knobY = 0;
+    pushPadInput(which, 0, 0, true);
   }
 
-  function handleZoneMove(e: PointerEvent) {
-    if (e.pointerId === activePointerId) updateStick(e.clientX, e.clientY);
+  function handlePadMove(which: 'move' | 'aim', e: PointerEvent) {
+    const state = padState(which);
+    if (e.pointerId !== state.pointerId || !state.pad || !state.el) return;
+    const rect = state.el.getBoundingClientRect();
+    const dx = e.clientX - rect.left - state.pad.x;
+    const dy = e.clientY - rect.top - state.pad.y;
+    const dist = Math.hypot(dx, dy);
+    const k = dist > 0 ? Math.min(1, MAX_TRAVEL / dist) : 0;
+    state.knobX = dx * k;
+    state.knobY = dy * k;
+    pushPadInput(which, state.knobX / MAX_TRAVEL, state.knobY / MAX_TRAVEL, true);
   }
 
-  function handleZoneUp(e: PointerEvent) {
-    if (e.pointerId !== activePointerId) return;
-    activePointerId = null;
-    pad = null;
-    knobX = 0;
-    knobY = 0;
-    controller?.setStickInput(0, 0, false);
+  function handlePadUp(which: 'move' | 'aim', e: PointerEvent) {
+    const state = padState(which);
+    if (e.pointerId !== state.pointerId) return;
+    resetPad(which);
   }
+
+  $effect(() => {
+    const mql = window.matchMedia('(hover: none) and (pointer: coarse), (max-width: 900px)');
+    const sync = () => (touchUi = mql.matches);
+    sync();
+    mql.addEventListener('change', sync);
+    return () => mql.removeEventListener('change', sync);
+  });
+
+  $effect(() => {
+    if (hud.paused || hud.ended || hud.pendingChoices) {
+      resetPad('move');
+      resetPad('aim');
+    }
+  });
 
   $effect(() => {
     if (!viewportEl) return;
@@ -188,23 +234,23 @@
   <GameStage bind:viewport={viewportEl} label="Udder Havoc arena" what="the 3D pasture" {failed} />
 
   <!-- Top floating HUD -->
-  <div class="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col gap-2 p-3 sm:p-4">
-    <div class="flex items-start justify-between gap-2">
+  <div class="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col gap-2 p-2.5 sm:p-4">
+    <div class="flex flex-wrap items-start justify-between gap-2">
       <section
         aria-label="Cow vitals"
-        class="flex items-center gap-2.5 rounded-md border border-ink/12 bg-surface/88 px-2.5 py-2 backdrop-blur-md sm:gap-4 sm:px-3.5"
+        class="flex items-center gap-2 rounded-md border border-ink/12 bg-surface/88 px-2.5 py-1.5 backdrop-blur-md sm:gap-4 sm:px-3.5 sm:py-2"
       >
         <div class="flex flex-col">
           <span class="font-mono text-[9px] tracking-[0.12em] text-ink-dim uppercase">Wave {hud.wave}</span>
           <div class="mt-0.5 flex items-baseline gap-1.5">
-            <strong class="font-mono text-lg leading-none font-semibold text-ink sm:text-xl">{clockLabel}</strong>
+            <strong class="font-mono text-base leading-none font-semibold text-ink sm:text-xl">{clockLabel}</strong>
             <span class="font-mono text-[10px] text-sage">{hud.kills} KO</span>
           </div>
         </div>
 
         <div class="h-7 w-px bg-ink/10" aria-hidden="true"></div>
 
-        <div class="flex min-w-[92px] flex-col sm:min-w-[160px]">
+        <div class="flex min-w-[74px] flex-col sm:min-w-[160px]">
           <div class="flex items-baseline justify-between gap-2 font-mono text-[9px] tracking-[0.1em] uppercase">
             <span class="text-ink-dim">HP</span>
             <span class="text-[11px] font-semibold {lowHp ? 'text-[#c97a66]' : 'text-ink'}">
@@ -233,10 +279,10 @@
         </div>
       {/if}
 
-      <div class="pointer-events-auto flex shrink-0 items-center gap-1.5">
+      <div class="pointer-events-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
         <button
           type="button"
-          class="focus-ring inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-sm border border-ink/12 bg-surface/88 px-2.5 font-mono text-[11px] text-ink backdrop-blur-md transition-colors hover:border-ink/26"
+          class="focus-ring inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-sm border border-ink/12 bg-surface/88 px-2 font-mono text-[11px] text-ink backdrop-blur-md transition-colors hover:border-ink/26 sm:px-2.5"
           aria-label="Open asset gallery"
           title="3D Asset Gallery"
           onclick={() => setGalleryOpen(true)}
@@ -246,16 +292,20 @@
         </button>
         <button
           type="button"
-          class="focus-ring inline-flex h-9 cursor-pointer items-center rounded-sm border border-ink/12 bg-surface/88 px-2.5 font-mono text-[11px] backdrop-blur-md transition-colors hover:border-ink/26 {hud.autoAim ? 'border-sage/55 text-sage-soft' : 'text-ink-muted'}"
-          aria-pressed={hud.autoAim}
-          title="Toggle auto-aim (Q)"
+          class="focus-ring inline-flex h-9 cursor-pointer items-center rounded-sm border border-ink/12 bg-surface/88 px-2 font-mono text-[11px] backdrop-blur-md transition-colors hover:border-ink/26 sm:px-2.5 {effectiveAimMode === 'auto'
+            ? 'border-sage/55 text-sage-soft'
+            : effectiveAimMode === 'charge'
+              ? 'border-[#ffe469]/55 text-[#ffe469]'
+              : 'text-ink-muted'}"
+          aria-pressed={effectiveAimMode !== 'cursor'}
+          title={touchUi ? 'Cycle aim mode: Charge / Auto' : 'Cycle aim mode: Cursor / Charge / Auto (Q)'}
           onclick={() => controller?.toggleAutoAim()}
         >
-          {hud.autoAim ? 'Auto' : 'Cursor'}
+          {aimModeLabel}
         </button>
         <button
           type="button"
-          class="focus-ring inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-sm border border-ink/12 bg-surface/88 px-2.5 font-mono text-[11px] backdrop-blur-md transition-colors hover:border-ink/26 {hud.muted ? 'text-ink-dim' : 'text-ink'}"
+          class="focus-ring inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-sm border border-ink/12 bg-surface/88 px-2 font-mono text-[11px] backdrop-blur-md transition-colors hover:border-ink/26 sm:px-2.5 {hud.muted ? 'text-ink-dim' : 'text-ink'}"
           aria-pressed={hud.muted}
           aria-label={hud.muted ? 'Unmute sound' : 'Mute sound'}
           onclick={() => controller?.toggleMute()}
@@ -264,7 +314,7 @@
         </button>
         <button
           type="button"
-          class="focus-ring inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-sm border border-ink/12 bg-surface/88 px-2.5 font-mono text-[11px] text-ink backdrop-blur-md transition-colors hover:border-ink/26 disabled:opacity-45"
+          class="focus-ring inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-sm border border-ink/12 bg-surface/88 px-2 font-mono text-[11px] text-ink backdrop-blur-md transition-colors hover:border-ink/26 disabled:opacity-45 sm:px-2.5"
           disabled={hud.ended || Boolean(hud.pendingChoices)}
           aria-label={hud.paused ? 'Resume' : 'Pause'}
           onclick={() => controller?.togglePause()}
@@ -301,52 +351,60 @@
     </div>
   </div>
 
-  <!-- Touch controls (mobile / coarse pointer) -->
+  <!-- Touch controls (mobile / coarse pointer): dual touch-following circular dragpads -->
   <div
-    bind:this={controlZoneEl}
-    class="uh-control-zone absolute bottom-0 left-0 z-10 h-[44%] w-[62%] touch-none"
+    bind:this={movePad.el}
+    class="uh-touch-zone absolute bottom-0 left-0 z-10 h-[46%] w-1/2 touch-none"
     role="application"
-    aria-label="Touch move stick"
-    onpointerdown={handleZoneDown}
-    onpointermove={handleZoneMove}
-    onpointerup={handleZoneUp}
-    onpointercancel={handleZoneUp}
-    onlostpointercapture={handleZoneUp}
+    aria-label="Touch move pad"
+    onpointerdown={e => handlePadDown('move', e)}
+    onpointermove={e => handlePadMove('move', e)}
+    onpointerup={e => handlePadUp('move', e)}
+    onpointercancel={e => handlePadUp('move', e)}
+    onlostpointercapture={e => handlePadUp('move', e)}
   >
     <div
       class="uh-pad"
-      class:is-active={pad}
-      style={pad ? `left: ${pad.x}px; top: ${pad.y}px;` : 'left: 34%; top: 62%;'}
+      class:is-active={movePad.pad}
+      style={movePad.pad ? `left: ${movePad.pad.x}px; top: ${movePad.pad.y}px;` : 'left: 42%; top: 62%;'}
       aria-hidden="true"
     >
-      <span class="uh-knob" style="transform: translate(calc(-50% + {knobX}px), calc(-50% + {knobY}px));"></span>
+      <span class="uh-axis-h"></span>
+      <span class="uh-axis-v"></span>
+      <span class="uh-inner-ring"></span>
+      {#if !movePad.pad}<span class="uh-pad-label">Move</span>{/if}
+      <span class="uh-knob" style="transform: translate(calc(-50% + {movePad.knobX}px), calc(-50% + {movePad.knobY}px));"></span>
     </div>
   </div>
 
-  <button
-    type="button"
-    class="uh-charge-btn focus-ring absolute right-5 bottom-8 z-20 flex h-20 w-20 touch-none flex-col items-center justify-center rounded-full border border-[#ffe469]/45 font-mono text-[10px] tracking-wider text-[#ffe469] uppercase backdrop-blur-md transition-transform active:scale-95 {chargeHeld ? 'bg-[#ffe469]/20' : 'bg-surface/85'}"
-    onpointerdown={e => {
-      e.preventDefault();
-      chargeHeld = true;
-      controller?.setChargeInput(true);
-    }}
-    onpointerup={() => {
-      chargeHeld = false;
-      controller?.setChargeInput(false);
-    }}
-    onpointercancel={() => {
-      chargeHeld = false;
-      controller?.setChargeInput(false);
-    }}
+  <div
+    bind:this={aimPad.el}
+    class="uh-touch-zone absolute right-0 bottom-0 z-10 h-[46%] w-1/2 touch-none"
+    role="application"
+    aria-label="Touch charge and aim pad"
+    onpointerdown={e => handlePadDown('aim', e)}
+    onpointermove={e => handlePadMove('aim', e)}
+    onpointerup={e => handlePadUp('aim', e)}
+    onpointercancel={e => handlePadUp('aim', e)}
+    onlostpointercapture={e => handlePadUp('aim', e)}
   >
-    <span>Charge</span>
-    <span class="mt-0.5 text-[9px] text-ink-muted">Dash</span>
-  </button>
+    <div
+      class="uh-pad uh-pad-aim"
+      class:is-active={aimPad.pad}
+      style={aimPad.pad ? `left: ${aimPad.pad.x}px; top: ${aimPad.pad.y}px;` : 'left: 58%; top: 62%;'}
+      aria-hidden="true"
+    >
+      <span class="uh-axis-h"></span>
+      <span class="uh-axis-v"></span>
+      <span class="uh-inner-ring"></span>
+      {#if !aimPad.pad}<span class="uh-pad-label">{effectiveAimMode === 'auto' ? 'Charge' : 'Aim · Charge'}</span>{/if}
+      <span class="uh-knob" style="transform: translate(calc(-50% + {aimPad.knobX}px), calc(-50% + {aimPad.knobY}px));"></span>
+    </div>
+  </div>
 
   <footer class="pointer-events-none absolute inset-x-0 bottom-3 z-10 hidden justify-center px-4 md:flex">
     <p class="m-0 rounded-md border border-ink/8 bg-surface/80 px-3 py-1.5 font-mono text-[10px] text-ink-muted backdrop-blur-md">
-      WASD trot · Cursor aims (Q auto) · Hold Click or Space for Gold Pierce & Recoil Dash
+      WASD trot · Aim: Cursor / Charge / Auto (Q) · Hold Click or Space for Gold Pierce & Recoil Dash
     </p>
   </footer>
 
@@ -531,45 +589,132 @@
 </div>
 
 <style>
-  .uh-control-zone,
-  .uh-charge-btn {
+  .uh-touch-zone {
     display: none;
   }
 
-  @media (hover: none) and (pointer: coarse), (max-width: 768px) {
-    .uh-control-zone {
+  @media (hover: none) and (pointer: coarse), (max-width: 900px) {
+    .uh-touch-zone {
       display: block;
-    }
-    .uh-charge-btn {
-      display: flex;
     }
   }
 
   .uh-pad {
     position: absolute;
-    width: 104px;
-    height: 104px;
+    width: 100px;
+    height: 100px;
     transform: translate(-50%, -50%);
     border-radius: 50%;
     border: 1px solid rgba(213, 215, 207, 0.22);
     background: radial-gradient(circle, rgba(23, 25, 22, 0.62) 0%, rgba(17, 18, 16, 0.42) 100%);
+    backdrop-filter: blur(4px);
+    box-shadow: inset 0 0 0 1px rgba(213, 215, 207, 0.04);
     pointer-events: none;
-    opacity: 0.7;
+    opacity: 0.72;
+    transition:
+      left 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      top 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 160ms ease,
+      border-color 160ms ease,
+      box-shadow 160ms ease;
   }
 
   .uh-pad.is-active {
     opacity: 1;
-    border-color: rgba(158, 176, 154, 0.7);
+    border-color: rgba(158, 176, 154, 0.72);
+    box-shadow:
+      0 0 0 1px rgba(158, 176, 154, 0.22),
+      inset 0 0 18px rgba(122, 141, 118, 0.16);
+    transition:
+      opacity 120ms ease,
+      border-color 120ms ease,
+      box-shadow 120ms ease;
+  }
+
+  .uh-pad-aim {
+    border-color: rgba(255, 228, 105, 0.3);
+  }
+
+  .uh-pad-aim.is-active {
+    border-color: rgba(255, 228, 105, 0.78);
+    box-shadow:
+      0 0 0 1px rgba(255, 228, 105, 0.24),
+      inset 0 0 18px rgba(255, 228, 105, 0.16);
+  }
+
+  .uh-axis-h,
+  .uh-axis-v {
+    position: absolute;
+    background: rgba(213, 215, 207, 0.16);
+  }
+
+  .uh-axis-h {
+    left: 12px;
+    right: 12px;
+    top: 50%;
+    height: 1px;
+    transform: translateY(-0.5px);
+  }
+
+  .uh-axis-v {
+    top: 12px;
+    bottom: 12px;
+    left: 50%;
+    width: 1px;
+    transform: translateX(-0.5px);
+  }
+
+  .uh-pad.is-active .uh-axis-h,
+  .uh-pad.is-active .uh-axis-v {
+    background: rgba(158, 176, 154, 0.34);
+  }
+
+  .uh-pad-aim.is-active .uh-axis-h,
+  .uh-pad-aim.is-active .uh-axis-v {
+    background: rgba(255, 228, 105, 0.34);
+  }
+
+  .uh-inner-ring {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 40px;
+    height: 40px;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    border: 1px dashed rgba(213, 215, 207, 0.16);
+  }
+
+  .uh-pad-label {
+    position: absolute;
+    left: 50%;
+    bottom: 11px;
+    transform: translateX(-50%);
+    font-family: var(--font-mono, monospace);
+    font-size: 8.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: rgba(213, 215, 207, 0.6);
+  }
+
+  .uh-pad-aim .uh-pad-label {
+    color: rgba(255, 228, 105, 0.72);
   }
 
   .uh-knob {
     position: absolute;
     left: 50%;
     top: 50%;
-    width: 38px;
-    height: 38px;
+    width: 34px;
+    height: 34px;
     border-radius: 50%;
-    border: 1px solid rgba(213, 215, 207, 0.35);
+    border: 1px solid rgba(213, 215, 207, 0.36);
     background: rgba(158, 176, 154, 0.38);
+  }
+
+  .uh-pad-aim .uh-knob {
+    border-color: rgba(255, 228, 105, 0.55);
+    background: rgba(255, 228, 105, 0.32);
   }
 </style>

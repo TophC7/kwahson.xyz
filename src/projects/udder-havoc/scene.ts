@@ -32,6 +32,8 @@ import {
   type SimState,
 } from './sim';
 
+export type AimMode = 'cursor' | 'charge' | 'auto';
+
 export interface ArenaHudState {
   seed: number;
   season: Season;
@@ -55,7 +57,7 @@ export interface ArenaHudState {
   bossMaxHp: number;
   powerups: Record<PowerupId, number>;
   pendingChoices: PowerupId[] | null;
-  autoAim: boolean;
+  aimMode: AimMode;
   paused: boolean;
   ended: boolean;
   muted: boolean;
@@ -76,6 +78,7 @@ export interface ArenaController {
   togglePause(): void;
   restart(options?: RestartOptions): void;
   setStickInput(nx: number, ny: number, active: boolean): void;
+  setAimStickInput(nx: number, ny: number, active: boolean): void;
   setChargeInput(active: boolean): void;
   destroy(): void;
 }
@@ -249,9 +252,12 @@ export function mountUdderHavoc({
       shadowMat.dispose();
     });
 
+    const isTouchViewport = () =>
+      window.matchMedia('(hover: none) and (pointer: coarse), (max-width: 900px)').matches;
+
     let sim: SimState = createSimState(randomSeed());
     let paused = false;
-    let autoAim = false;
+    let aimMode: AimMode = isTouchViewport() ? 'charge' : 'cursor';
     let statusMsg = 'Recoil-skate away from beams. Hold Click/Space for Gold Pierce.';
     let statusTimer = 5;
     let shake = 0;
@@ -380,7 +386,7 @@ export function mountUdderHavoc({
         bossMaxHp: boss ? boss.maxHp : 0,
         powerups: { ...sim.powerups },
         pendingChoices: sim.pendingChoices ? [...sim.pendingChoices] : null,
-        autoAim,
+        aimMode,
         paused,
         ended: sim.ended,
         muted: audio.isMuted(),
@@ -543,6 +549,9 @@ export function mountUdderHavoc({
     let stickX = 0;
     let stickZ = 0;
     let stickActive = false;
+    let aimStickX = 0;
+    let aimStickZ = 0;
+    let aimStickActive = false;
 
     window.addEventListener('keydown', e => {
       if (!isGameKey(e)) return;
@@ -932,20 +941,28 @@ export function mountUdderHavoc({
           moveZ = stickZ - stickX;
         }
 
+        const charging = mouseCharging || touchCharging || keys.has('Space');
         let aimDirX = 0;
         let aimDirZ = 0;
         let hasManualAim = false;
-        const mouseFresh = !autoAim && pointerActive && (now - pointerLastMove < 3500 || mouseCharging);
-        if (mouseFresh) {
-          raycaster.setFromCamera(pointerNdc, camera);
-          if (raycaster.ray.intersectPlane(aimPlane, groundHit)) {
-            aimDirX = groundHit.x - sim.player.x;
-            aimDirZ = groundHit.z - sim.player.z;
+        if (aimMode !== 'auto' && aimStickActive) {
+          if (Math.hypot(aimStickX, aimStickZ) > 0.14) {
+            aimDirX = aimStickX + aimStickZ;
+            aimDirZ = aimStickZ - aimStickX;
             hasManualAim = true;
+          }
+        } else if (aimMode === 'cursor' || (aimMode === 'charge' && charging)) {
+          const mouseFresh = pointerActive && (now - pointerLastMove < 3500 || mouseCharging);
+          if (mouseFresh) {
+            raycaster.setFromCamera(pointerNdc, camera);
+            if (raycaster.ray.intersectPlane(aimPlane, groundHit)) {
+              aimDirX = groundHit.x - sim.player.x;
+              aimDirZ = groundHit.z - sim.player.z;
+              hasManualAim = true;
+            }
           }
         }
 
-        const charging = mouseCharging || touchCharging || keys.has('Space');
         stepSim(sim, { moveX, moveZ, aimDirX, aimDirZ, hasManualAim, charging }, dt);
         consumeEvents();
         bursts.update(dt);
@@ -973,8 +990,18 @@ export function mountUdderHavoc({
         pushHud();
       },
       toggleAutoAim() {
-        autoAim = !autoAim;
-        statusMsg = autoAim ? 'Auto-aim locked to nearest alien.' : 'Cursor aim restored.';
+        const touchMode = isTouchViewport();
+        const order: AimMode[] = touchMode ? ['charge', 'auto'] : ['cursor', 'charge', 'auto'];
+        const curIdx = order.indexOf(aimMode);
+        aimMode = order[(curIdx + 1) % order.length];
+        statusMsg =
+          aimMode === 'auto'
+            ? 'Auto-aim: always tracks nearest alien.'
+            : aimMode === 'charge'
+              ? touchMode
+                ? 'Charge aim: auto-aims shots, drag right pad while charging.'
+                : 'Charge aim: auto-aims normal shots, cursor aims while charging.'
+              : 'Cursor aim: always aims toward cursor.';
         statusTimer = 2.5;
         pushHud();
       },
@@ -1005,6 +1032,11 @@ export function mountUdderHavoc({
         stickX = nx;
         stickZ = ny;
         stickActive = active;
+      },
+      setAimStickInput(nx, ny, active) {
+        aimStickX = nx;
+        aimStickZ = ny;
+        aimStickActive = active;
       },
       setChargeInput(active) {
         audio.unlock();
