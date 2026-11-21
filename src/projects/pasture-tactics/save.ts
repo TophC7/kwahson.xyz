@@ -2,7 +2,7 @@ import { COLS, ROWS, ENTITY_KINDS, ITEMS, MAX_EGGS, OVERHEAL, POWER_PER_TURN, ty
 import { maxHp, tileIndex, tileOf, type Dir, type Entity, type GameState } from './rules';
 import { createGame } from './scenario';
 
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 const STORAGE_KEY = 'pasture-tactics-save';
 const DIFFICULTIES = ['easy', 'medium', 'hard'] as const;
 const PHASES = ['player', 'won', 'lost'] as const;

@@ -24,7 +24,7 @@ export const GALLERY_ITEMS: GalleryItem[] = [
   ...galleryGroup('items', [ITEMS.honey, ITEMS.apple, ITEMS.can, ITEMS.pumpkin, ITEMS.tractor]),
 ];
 
-export const GALLERY_TAGS = { brute: 'New', lobber: 'New', egg: 'New', 'corn-wall': 'New' };
+export const GALLERY_TAGS = { pig: 'New', duck: 'New', brute: 'New', lobber: 'New', egg: 'New', 'corn-wall': 'New' };
 
 export function buildTacticsModel(studio: StudioBuilder, id: string): THREE.Group {
   const { part, mesh, track } = studio;

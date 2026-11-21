@@ -29,6 +29,7 @@ export type GameEvent =
   | { t: 'heal'; id: number; amount: number; hp: number }
   | { t: 'shield'; id: number }
   | { t: 'block'; id: number }
+  | { t: 'heavy'; id: number }
   | { t: 'bump'; id: number; dir: Dir; blockerId: number | null }
   | { t: 'ko'; id: number }
   | { t: 'spawn'; entity: Entity; how: 'place' | 'land' }
@@ -80,6 +81,7 @@ export function maxHp(e: Entity): number | null {
   return PROPS[e.kind as PropKind].hp;
 }
 const pushable = (e: Entity) => isHero(e) || isEnemy(e) || PROPS[e.kind as PropKind].pushable;
+const heavy = (e: Entity) => isHero(e) && !!HEROES[e.kind].parts.heavy;
 const hasEgg = (s: GameState, p: Tile) => s.traps.some(t => same(t, p));
 const plantable = (s: GameState, p: Tile) => inside(p) && !entityAt(s, p.x, p.y) && !hasEgg(s, p);
 function activeHero(s: GameState, id: number): Hero | undefined {
@@ -156,7 +158,10 @@ export function skillTargets(state: GameState, id: number): Tile[] {
   return targets(p => {
     const n = distance(e, p), t = entityAt(state, p.x, p.y);
     switch (e.kind) {
-      case 'cow': return n === 1 && !!t && pushable(t);
+      // Shove only moves its target, so a Heavy one is no target at all.
+      case 'cow': return n === 1 && !!t && pushable(t) && !heavy(t);
+      case 'pig': return n === 1 && foe(t);
+      case 'duck': return n === 1;
       case 'healer': return n <= 3 && healable(t, OVERHEAL);
       case 'bee': return n > 0 && n <= 3 && aligned(e, p) && foe(t);
       case 'cat': {
@@ -229,9 +234,13 @@ function travel(r: Resolution, e: Entity, path: Tile[], style: MoveStyle): boole
   if (segment.length) r.events.push({ t: 'move', id: e.id, path: segment, style });
   return false;
 }
-function push(r: Resolution, e: Entity, d: Dir) {
+function displace(r: Resolution, e: Entity, d: Dir, dest = offset(e, d)) {
   if (!pushable(e)) return;
-  const dest = offset(e, d), blocker = entityAt(r.state, dest.x, dest.y);
+  if (heavy(e)) {
+    r.events.push({ t: 'heavy', id: e.id });
+    return;
+  }
+  const blocker = entityAt(r.state, dest.x, dest.y);
   if (inside(dest) && !blocker) {
     travel(r, e, [dest], 'slide');
   } else {
@@ -244,12 +253,24 @@ function spawn(r: Resolution, kind: EntityKind, p: Tile, how: 'place' | 'land') 
   const e = createEntity(r.state, kind, p.x, p.y, how === 'place');
   r.events.push({ t: 'spawn', entity: { ...e }, how });
 }
+function crossRow(p: Tile, d: Dir): Tile[] {
+  const side = DIRS[(d + 1) % 4];
+  return [p, offset(p, side), offset(p, side, -1)];
+}
 function useSkill(r: Resolution, e: Hero, p: Tile) {
   const d = facing(e, p), t = entityAt(r.state, p.x, p.y)!;
   e.dir = d;
   r.events.push({ t: 'skill', id: e.id, name: HEROES[e.kind].skill.name, dir: d, x: p.x, y: p.y });
   switch (e.kind) {
-    case 'cow': push(r, t, d); break;
+    case 'cow': displace(r, t, d); break;
+    case 'pig': damage(r, t, 2); break;
+    case 'duck': {
+      for (const q of crossRow(p, d)) {
+        const hit = entityAt(r.state, q.x, q.y);
+        if (hit) displace(r, hit, d);
+      }
+      break;
+    }
     case 'healer': heal(r, t, OVERHEAL); break;
     case 'bee': damage(r, t, 1); break;
     case 'goat': {
@@ -257,7 +278,7 @@ function useSkill(r: Resolution, e: Hero, p: Tile) {
       for (let q = offset(e, d); !same(q, p); q = offset(q, d)) path.push(q);
       travel(r, e, path, 'charge');
       damage(r, t, 2);
-      if (t.hp > 0) push(r, t, d);
+      if (t.hp > 0) displace(r, t, d);
       break;
     }
     case 'cat': travel(r, e, [offset(p, d)], 'leap'); damage(r, t, 1); break;
@@ -283,8 +304,7 @@ function useItem(r: Resolution, e: Hero, item: ItemKind, p: Tile) {
     case 'bale': spawn(r, 'hay', p, 'place'); break;
     case 'decoy': spawn(r, 'scarecrow', p, 'place'); break;
     case 'can': {
-      const side = DIRS[(d + 1) % 4];
-      for (const q of [p, offset(p, side), offset(p, side, -1)]) {
+      for (const q of crossRow(p, d)) {
         if (plantable(s, q)) spawn(r, 'corn', q, 'place');
       }
       break;
@@ -295,7 +315,7 @@ function useItem(r: Resolution, e: Hero, item: ItemKind, p: Tile) {
         const q = offset(e, d, n), hit = entityAt(s, q.x, q.y);
         if (!foe(hit)) continue;
         damage(r, hit, 2);
-        if (hit.hp > 0) push(r, hit, d);
+        if (hit.hp > 0) displace(r, hit, d);
       }
       break;
     }
@@ -388,12 +408,12 @@ function attack(r: Resolution, e: Enemy, d: Dir, board: Board) {
   for (const q of tiles) {
     const hit = board[tileIndex(q)];
     if (!hit) continue;
-    if (e.kind === 'saucer' && pushable(hit) && distance(e, hit) > 1) {
-      travel(r, hit, [offset(e, d)], 'slide');
+    if (e.kind === 'saucer' && distance(e, hit) > 1 && pushable(hit)) {
+      displace(r, hit, d, offset(e, d));
       if (!hit.hp) continue;
     }
     damage(r, hit, ENEMIES[e.kind].damage);
-    if ((e.kind === 'brute' || e.kind === 'blueSprout') && hit.hp > 0) push(r, hit, d);
+    if ((e.kind === 'brute' || e.kind === 'blueSprout') && hit.hp > 0) displace(r, hit, d);
   }
 }
 

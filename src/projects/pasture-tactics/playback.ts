@@ -126,13 +126,36 @@ export function createPlayback(stage: Stage, reduceMotion: boolean): Playback {
       }
       case 'skill': {
         if (!v) return;
-        stage.audio.play(e.name as SfxName);
         const at = v.holder.position.clone(), ground = stage.tileCenter(e.x, e.y);
         const start = at.clone(); start.y += v.hover + 0.65;
         const end = ground.clone(); end.y += 0.55;
         const heading = new THREE.Vector3(DX[e.dir], 0, DZ[e.dir]);
         const yaw = v.holder.rotation.y;
         v.holder.rotation.y = YAW[e.dir];
+        if (e.name === 'Belly Flop') {
+          const landing = at.clone().addScaledVector(heading, tile * 0.64);
+          yield [0.28, travel(v.holder, at, landing, tile * 0.56)];
+          stage.audio.play('Belly Flop');
+          stage.bursts.spawn(landing, 0xd9c9a8, 12);
+          yield [0.16, t => {
+            v.model.scale.y = v.baseScale * (1 - 0.26 * arc(t));
+            v.holder.position.lerpVectors(landing, at, t);
+          }];
+          v.holder.rotation.y = yaw;
+          return;
+        }
+        stage.audio.play(e.name as SfxName);
+        if (e.name === 'Gust') {
+          const left = v.model.getObjectByName('wing-left')!, right = v.model.getObjectByName('wing-right')!;
+          yield [0.36, t => {
+            const flap = arc((t * 2) % 1);
+            left.rotation.z = -1.9 * flap;
+            right.rotation.z = 1.9 * flap;
+            v.model.position.y = v.hover + tile * 0.10 * flap;
+          }];
+          v.holder.rotation.y = yaw;
+          return;
+        }
         let fx: Frame | undefined, fxTime = 0;
         const ray = RAYS[e.name];
         if (ray) {

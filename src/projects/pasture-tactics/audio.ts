@@ -2,7 +2,7 @@ import { createSfxEngine } from '../../lib/sfx';
 
 export type SfxName =
   | 'select' | 'deselect' | 'invalid' | 'uiClick' | 'undo' | 'step' | 'fly'
-  | 'Shove' | 'Mend' | 'Sting' | 'Ram' | 'Pounce' | 'Egg' | 'Wool'
+  | 'Shove' | 'Mend' | 'Sting' | 'Ram' | 'Pounce' | 'Egg' | 'Wool' | 'Belly Flop' | 'Gust'
   | 'Zap' | 'Laser' | 'Slam' | 'Mortar' | 'Beam' | 'Flame' | 'Chain' | 'Jet' | 'split'
   | 'bump' | 'heal' | 'hit' | 'block' | 'koHero' | 'koEnemy' | 'crunch'
   | 'place' | 'land' | 'eggHit' | 'item' | 'splat' | 'tractor'
@@ -85,6 +85,14 @@ export function createTacticsAudio(): TacticsAudio {
     Wool() {
       tone({ freq: 440, gain: 0.05, duration: 0.30 });
       tone({ freq: 554, gain: 0.045, duration: 0.30, delay: 0.04 });
+    },
+    'Belly Flop'() {
+      tone({ freq: 130, endFreq: 52, gain: 0.15, duration: 0.18 });
+      noise({ freq: 380, gain: 0.12, duration: 0.10 });
+    },
+    Gust() {
+      noise({ freq: 1200, gain: 0.09, duration: 0.12 });
+      noise({ freq: 1800, gain: 0.13, duration: 0.18, delay: 0.10 });
     },
     Zap: zap,
     Flame() {

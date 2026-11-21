@@ -632,8 +632,12 @@ export function buildMiniature(studio: StudioBuilder, id: string): THREE.Group {
       part(g, 'box', body, [0.54, 0.42, 0.7], [0, 0.46, -0.02]);
       part(g, 'box', 0xdccab2, [0.52, 0.16, 0.42], [0, 0.34, 0.14]);
       for (const x of [-0.31, 0.31]) {
-        part(g, 'box', wing, [0.09, 0.24, 0.46], [x, 0.48, -0.04]);
-        part(g, 'box', 0x527a96, [0.1, 0.1, 0.2], [x, 0.45, -0.06]);
+        const shoulder = new THREE.Group();
+        shoulder.name = x < 0 ? 'wing-left' : 'wing-right';
+        shoulder.position.set(x, 0.60, -0.04);
+        g.add(shoulder);
+        part(shoulder, 'box', wing, [0.09, 0.24, 0.46], [0, -0.12, 0]);
+        part(shoulder, 'box', 0x527a96, [0.1, 0.1, 0.2], [0, -0.15, -0.02]);
       }
       part(g, 'box', 0x454a46, [0.3, 0.18, 0.18], [0, 0.6, -0.42]);
 

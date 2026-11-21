@@ -55,6 +55,50 @@ function shove(withRock: boolean) {
   assert(visitor?.x === 3 && visitor.y === 2 && visitor.hp === 2, 'Free Shove: position or HP');
 }
 
+// Belly Flop deals two damage without displacing a surviving neighbour.
+{
+  const s = blank(), pig = createEntity(s, 'pig', 3, 4), brute = createEntity(s, 'brute', 3, 3);
+  const { state, events } = apply(s, { type: 'skill', id: pig.id, x: brute.x, y: brute.y });
+  const hit = byId(state, brute.id);
+  assert(events.some(e => e.t === 'skill' && e.id === pig.id && e.name === 'Belly Flop'), 'Missing Belly Flop');
+  assert(hit?.hp === brute.hp - 2 && hit.x === brute.x && hit.y === brute.y, 'Belly Flop damage or displacement');
+}
+
+// Heavy takes the Slam itself, but not a collision with the board edge behind it.
+{
+  const s = blank(), pig = createEntity(s, 'pig', 3, 0);
+  createEntity(s, 'brute', 3, 1);
+  const { state, events } = apply(s, { type: 'endTurn' });
+  const hit = byId(state, pig.id);
+  assert(hit?.hp === pig.hp - 2 && hit.x === pig.x && hit.y === pig.y, 'Heavy should take only Slam damage');
+  assert(!events.some(e => e.t === 'bump' && e.id === pig.id), 'Heavy triggered a collision');
+  // Shove can only move its target, so it must not offer a Heavy one.
+  const cowSide = blank(), cow = createEntity(cowSide, 'cow', 3, 4);
+  createEntity(cowSide, 'pig', 3, 3);
+  assert(skillTargets(cowSide, cow.id).length === 0, 'Shove offered a Heavy target');
+}
+
+// Eastward Gust pushes all three front tiles, including friends. Heavy can still be hit by another unit.
+{
+  const s = blank(), duck = createEntity(s, 'duck', 2, 3);
+  const friend = createEntity(s, 'cow', 3, 2), visitor = createEntity(s, 'visitor', 3, 3);
+  const flank = createEntity(s, 'scout', 3, 4), pig = createEntity(s, 'pig', 4, 3);
+  const outside = createEntity(s, 'visitor', 3, 1);
+  const { state, events } = apply(s, { type: 'skill', id: duck.id, x: visitor.x, y: visitor.y });
+  assert(events.some(e => e.t === 'skill' && e.id === duck.id && e.name === 'Gust'), 'Missing Gust');
+  for (const e of [friend, flank]) {
+    const moved = byId(state, e.id);
+    assert(moved?.x === e.x + 1 && moved.y === e.y && moved.hp === e.hp, `Gust did not slide ${e.kind} forward`);
+  }
+  assert(events.some(e => e.t === 'bump' && e.id === visitor.id && e.blockerId === pig.id), 'Missing Gust collision');
+  for (const e of [visitor, pig]) {
+    const hit = byId(state, e.id);
+    assert(hit?.hp === e.hp - 1 && hit.x === e.x && hit.y === e.y, `Gust collision on ${e.kind}`);
+  }
+  const untouched = byId(state, outside.id);
+  assert(untouched?.x === outside.x && untouched.y === outside.y && untouched.hp === outside.hp, 'Gust exceeded its width');
+}
+
 // A visitor closes the gap and hits in one phase.
 {
   const s = blank(), visitor = createEntity(s, 'visitor', 2, 1), cow = createEntity(s, 'cow', 2, 4);

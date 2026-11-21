@@ -256,7 +256,7 @@ export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }:
         ? sizedModel(info.model, TILE * info.size, TILE * info.size)
         : sizedModel(info.model, TILE * (e.kind === 'barn' ? 0.95 : e.kind === 'crop' ? 0.6 : 0.86), (e.kind === 'crop' ? 0.75 : 1.25) * TILE);
       const holder = new THREE.Group(), pips = canvasSprite(BAR_W * 2, BAR_H * 2), hit = new THREE.Mesh(hitGeo, hitMat);
-      const hover = e.kind === 'bee' ? 0.35 : e.kind === 'saucer' ? 0.8 : 0;
+      const hover = e.kind === 'bee' || e.kind === 'duck' ? 0.35 : e.kind === 'saucer' ? 0.8 : 0;
       model.position.y = hover; pips.position.y = hover + height + 0.16; pips.scale.set(2.2, 2.2 * BAR_H / BAR_W, 1);
       hit.scale.set(0.8 * TILE, height, 0.8 * TILE); hit.position.y = hover + height / 2; hit.userData.id = e.id; hits.push(hit);
       holder.add(model, pips, hit); holder.position.copy(tileCenter(e.x, e.y)); holder.rotation.y = yaw(e.dir); pieces.add(holder);
@@ -422,6 +422,7 @@ export function mountPastureTactics({ viewport, onState, insets, onEndTurnKey }:
           case 'heal': preview.push(name + ' +' + ev.amount + (ev.hp > maxHp(entity(ev.id))! ? ' · bonus until your turn' : '')); break;
           case 'shield': preview.push(name + ' shielded'); break;
           case 'block': preview.push(name + ' blocks'); break;
+          case 'heavy': preview.push(name + ' holds position'); break;
           case 'bump': {
             const blocker = ev.blockerId !== null && entity(ev.blockerId);
             preview.push(name + ' hits ' + (blocker ? INFO[blocker.kind].name : 'the edge'));

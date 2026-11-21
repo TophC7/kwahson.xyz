@@ -17,7 +17,7 @@ export const DIFFICULTIES: Record<Difficulty, { label: string; tagline: string }
   hard: { label: 'Hard', tagline: 'The whole fleet' },
 };
 
-export const HERO_KINDS = ['cow', 'healer', 'bee', 'goat', 'cat', 'hen', 'sheep'] as const;
+export const HERO_KINDS = ['cow', 'healer', 'bee', 'goat', 'cat', 'hen', 'sheep', 'pig', 'duck'] as const;
 export const ENEMY_KINDS = ['visitor', 'sprouts', 'scout', 'brute', 'lobber', 'saucer', 'redSprout', 'yellowSprout', 'blueSprout'] as const;
 // A Sprouts trio splits into these, in this order; damage to the trio knocks them out from the back.
 export const SPROUT_KINDS = ['redSprout', 'yellowSprout', 'blueSprout'] as const;
@@ -48,11 +48,12 @@ export interface CostParts {
   taunt?: number;
   extraMove?: number;
   overheal?: number;
+  heavy?: number;
 }
 
 const PRICES = {
   hp: 1, move: 1, dmg: 1, heal: 1, reach: [0, 1, 2], push: 1, charge: 1,
-  leap: 1, fly: 1, shield: 2, extraTiles: 0.5, wall: 1, taunt: 1, extraMove: 2, overheal: 1,
+  leap: 1, fly: 1, shield: 2, extraTiles: 0.5, wall: 1, taunt: 1, extraMove: 2, overheal: 1, heavy: 1,
 } as const;
 
 export function cost(parts: CostParts): number {
@@ -117,6 +118,16 @@ export const HEROES: Record<HeroKind, Unit & { skill: Ability }> = {
     name: 'Sheep', model: 'sheep', size: 0.8, hp: 4, move: 3, fly: false,
     skill: { name: 'Wool', desc: 'Shield a friend within 2 tiles from the next hit.' },
     parts: { shield: 1, reach: 2 },
+  },
+  pig: {
+    name: 'Pig', model: 'pig', size: 0.8, hp: 5, move: 2, fly: false,
+    skill: { name: 'Belly Flop', desc: 'Deal 2 damage to a neighbour. Heavy: Pig cannot be pushed or pulled.' },
+    parts: { dmg: 2, heavy: 1 },
+  },
+  duck: {
+    name: 'Duck', model: 'duck', size: 0.8, hp: 3, move: 4, fly: true,
+    skill: { name: 'Gust', desc: 'Pick a direction. Push the 3 tiles across your front forward 1 tile, friends included.' },
+    parts: { push: 1, extraTiles: 2 },
   },
 };
 

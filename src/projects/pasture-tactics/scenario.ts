@@ -5,7 +5,7 @@ import {
 } from './data';
 import { createEntity, entityAt, maxHp, tileIndex, tileOf, type GameState } from './rules';
 
-const STRIKERS: Partial<Record<HeroKind, true>> = { bee: true, goat: true, cat: true, hen: true };
+const STRIKERS: Partial<Record<HeroKind, true>> = { bee: true, goat: true, cat: true, hen: true, pig: true };
 const PROP_WEIGHTS = [['rock', 3], ['stump', 2], ['silo', 1], ['hay', 2], ['crate', 2]] as const;
 const ENEMY_WEIGHTS = ENEMY_KINDS.filter((kind) => ENEMIES[kind].weight > 0).map((kind) => [kind, ENEMIES[kind].weight] as const);
 const ENEMY_COST = Object.fromEntries(ENEMY_KINDS.map((k) => [k, unitCost(ENEMIES[k])])) as Record<EnemyKind, number>;

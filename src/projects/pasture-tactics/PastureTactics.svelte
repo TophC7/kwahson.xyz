@@ -6,7 +6,7 @@
   } from '@hugeicons/core-free-icons';
   import Icon from '../../components/Icon.svelte';
   import AssetGallery from '../../components/AssetGallery.svelte';
-  import { CROP_COUNT, DIFFICULTIES, ENEMIES, ENEMY_KINDS, HEROES, HOLD_TURNS, ITEMS, POWER_PER_TURN, type Difficulty } from './data';
+  import { CROP_COUNT, DIFFICULTIES, ENEMIES, ENEMY_KINDS, HEROES, HERO_KINDS, HOLD_TURNS, ITEMS, POWER_PER_TURN, type Difficulty } from './data';
   import { buildTacticsModel, GALLERY_GROUPS, GALLERY_ITEMS, GALLERY_TAGS } from './models';
   import { mountPastureTactics, type TacticsController, type TacticsHudState } from './scene';
 
@@ -289,7 +289,7 @@
         <li>Undo is free until you end the turn. Your fight is saved in the link.</li>
       </ul>
       <div class="space-y-3 text-xs">
-        <section><h3 class="font-mono text-sage-soft uppercase">Your herd</h3><ul>{#each hud.heroes as {kind}}{@const h = HEROES[kind]}{@render guideRow(h.model, `${h.name} · ${h.skill.name}`, h.skill.desc)}{/each}</ul></section>
+        <section><h3 class="font-mono text-sage-soft uppercase">Heroes</h3><ul>{#each HERO_KINDS as kind}{@const h = HEROES[kind]}{@render guideRow(h.model, `${h.name} · ${h.skill.name}`, h.skill.desc)}{/each}</ul></section>
         <section><h3 class="font-mono text-ochre uppercase">Shared items</h3><ul>{#each hud.items as {kind, charges}}{@const i = ITEMS[kind]}{@render guideRow(i.model, i.name, `${i.desc} ${i.power} power · ${charges}/${i.charges} charges.`)}{/each}</ul></section>
         <section><h3 class="font-mono text-sage-soft uppercase">Visitors</h3><ul>{#each ENEMY_KINDS as kind}{@const e = ENEMIES[kind]}{@render guideRow(e.model, `${e.name} · ${e.attack.name}`, e.attack.desc)}{/each}</ul></section>
       </div>
