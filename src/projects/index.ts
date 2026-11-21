@@ -1,5 +1,6 @@
 import type { Component } from 'svelte';
 import BammiPreview from './bammi/Preview.svelte';
+import CornShotsPreview from './corn-shots/Preview.svelte';
 import MoojongPreview from './moojong/Preview.svelte';
 import PasturePatrolPreview from './pasture-patrol/Preview.svelte';
 import PastureTacticsPreview from './pasture-tactics/Preview.svelte';
@@ -27,6 +28,17 @@ export const projects: ProjectEntry[] = [
     year: 2026,
     preview: UdderHavocPreview,
     load: () => import('./udder-havoc/UdderHavoc.svelte'),
+  },
+  {
+    slug: 'corn-shots',
+    title: 'Corn Shots',
+    description:
+      'Seeded ricochet trick-shot puzzle shooter: bank explosive corn off hay bales and tractors behind shielded aliens to beat Par.',
+    category: 'game',
+    tags: ['Three.js', 'Ricochet', 'Puzzle'],
+    year: 2026,
+    preview: CornShotsPreview,
+    load: () => import('./corn-shots/CornShots.svelte'),
   },
   {
     slug: 'pasture-tactics',
