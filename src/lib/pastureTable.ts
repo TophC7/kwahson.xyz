@@ -17,13 +17,25 @@ export function addTableLights(scene: THREE.Object3D, sunZ: number): () => void 
   return () => sun.shadow.dispose();
 }
 
+export interface PastureTablePalette {
+  earth?: number;
+  rim?: number;
+  turf?: number;
+  checker?: number;
+  post?: number;
+  rail?: number;
+  tuft?: number;
+  flowerA?: number;
+  flowerB?: number;
+}
+
 export function buildPastureTable(
   kit: PastureKit,
   group: THREE.Group,
-  o: { cx: number; cz: number; spanX: number; spanZ: number; checker: boolean },
+  o: { cx: number; cz: number; spanX: number; spanZ: number; checker: boolean; palette?: PastureTablePalette },
 ): void {
   group.clear();
-  const { cx, cz, spanX, spanZ } = o;
+  const { cx, cz, spanX, spanZ, palette: pal = {} } = o;
 
   const addPart = (
     kind: PartKind,
@@ -37,10 +49,10 @@ export function buildPastureTable(
     return m;
   };
 
-  // Earthy diorama slab + dark grass rim + soft checkered pasture tabletop
-  addPart('box', 0x9b684a, [spanX + 0.5, 0.72, spanZ + 0.5], [cx, -0.5, cz]);
-  addPart('box', 0x6f9650, [spanX + 0.64, 0.24, spanZ + 0.64], [cx, -0.06, cz], true);
-  addPart('box', 0x8dbd62, [spanX + 0.24, 0.08, spanZ + 0.24], [cx, 0.04, cz], true);
+  // Earthy diorama slab + grass/snow rim + soft checkered pasture tabletop
+  addPart('box', pal.earth ?? 0x9b684a, [spanX + 0.5, 0.72, spanZ + 0.5], [cx, -0.5, cz]);
+  addPart('box', pal.rim ?? 0x6f9650, [spanX + 0.64, 0.24, spanZ + 0.64], [cx, -0.06, cz], true);
+  addPart('box', pal.turf ?? 0x8dbd62, [spanX + 0.24, 0.08, spanZ + 0.24], [cx, 0.04, cz], true);
 
   if (o.checker) {
     // Subtle pasture checkerboard patches
@@ -54,7 +66,7 @@ export function buildPastureTable(
         if ((i + j) % 2 === 0) {
           addPart(
             'box',
-            0x85b45c,
+            pal.checker ?? 0x85b45c,
             [patchSize - 0.04, 0.012, patchSize - 0.04],
             [startX + i * patchSize, 0.082, startZ + j * patchSize],
             true,
@@ -71,27 +83,30 @@ export function buildPastureTable(
   const xPosts = Math.max(4, Math.round(spanX / postStep));
   const zPosts = Math.max(4, Math.round(spanZ / postStep));
 
+  const postColor = pal.post ?? 0xf3e6bd;
+  const postCap = pal.rail ?? 0xfff1cf;
   for (let i = 0; i <= xPosts; i++) {
     const px = cx - hx + (i / xPosts) * (hx * 2);
     for (const pz of [cz - hz, cz + hz]) {
-      addPart('box', 0xf3e6bd, [0.11, 0.44, 0.11], [px, 0.24, pz]);
-      addPart('sphere', 0xfff1cf, [0.09, 0.065, 0.09], [px, 0.48, pz]);
+      addPart('box', postColor, [0.11, 0.44, 0.11], [px, 0.24, pz]);
+      addPart('sphere', postCap, [0.09, 0.065, 0.09], [px, 0.48, pz]);
     }
   }
   for (let j = 1; j < zPosts; j++) {
     const pz = cz - hz + (j / zPosts) * (hz * 2);
     for (const px of [cx - hx, cx + hx]) {
-      addPart('box', 0xf3e6bd, [0.11, 0.44, 0.11], [px, 0.24, pz]);
-      addPart('sphere', 0xfff1cf, [0.09, 0.065, 0.09], [px, 0.48, pz]);
+      addPart('box', postColor, [0.11, 0.44, 0.11], [px, 0.24, pz]);
+      addPart('sphere', postCap, [0.09, 0.065, 0.09], [px, 0.48, pz]);
     }
   }
 
   // Fence rails
+  const railColor = pal.rail ?? 0xe0cf9e;
   for (const pz of [cz - hz, cz + hz]) {
-    addPart('box', 0xe0cf9e, [hx * 2, 0.07, 0.07], [cx, 0.29, pz]);
+    addPart('box', railColor, [hx * 2, 0.07, 0.07], [cx, 0.29, pz]);
   }
   for (const px of [cx - hx, cx + hx]) {
-    addPart('box', 0xe0cf9e, [0.07, 0.07, hz * 2], [px, 0.29, cz]);
+    addPart('box', railColor, [0.07, 0.07, hz * 2], [px, 0.29, cz]);
   }
 
   // Quiet little grass tufts & wildflowers tucked along the fence perimeter
@@ -115,9 +130,9 @@ export function buildPastureTable(
     }
 
     if (i % 3 === 0) {
-      addPart('sphere', i % 2 ? 0xffe4a0 : 0xf7f4d9, [0.06, 0.045, 0.06], [x, 0.13, z]);
+      addPart('sphere', i % 2 ? (pal.flowerA ?? 0xffe4a0) : (pal.flowerB ?? 0xf7f4d9), [0.06, 0.045, 0.06], [x, 0.13, z]);
     } else {
-      const tuft = addPart('cone', 0x6f9b4d, [0.055, 0.16, 0.055], [x, 0.15, z]);
+      const tuft = addPart('cone', pal.tuft ?? 0x6f9b4d, [0.055, 0.16, 0.055], [x, 0.15, z]);
       tuft.rotation.z = 0.2;
     }
   }

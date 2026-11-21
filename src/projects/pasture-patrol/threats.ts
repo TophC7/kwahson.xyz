@@ -1,5 +1,6 @@
 import type { MiniatureId } from '../../lib/miniatures';
 import * as THREE from 'three';
+import { BAZOOKA_MUZZLE_LOCAL } from '../../lib/bazookaCow';
 import type { PastureAudio } from './audio';
 import type { PastureKit } from '../../lib/pastureKit';
 
@@ -239,7 +240,7 @@ export function createThreats({ scene, kit, miniature, audio, player, hover, ent
     const p = cow.mesh.position;
     cow.heading = cow.mesh.rotation.y = Math.atan2(aimEnd.x - p.x, aimEnd.z - p.z);
     cow.mesh.updateMatrixWorld();
-    cow.mesh.localToWorld(muzzle.set(0.34, 0.93, 0.35));
+    cow.mesh.localToWorld(muzzle.set(...BAZOOKA_MUZZLE_LOCAL));
     const locked = charge >= TRACK;
     const pulse = locked ? 0.2 + 0.05 * Math.sin(charge * 60) : 0.1;
     aimLine.position.copy(muzzle).lerp(aimEnd, 0.5);

@@ -53,24 +53,27 @@
 
     <!-- Stylized tiny cows + rock -->
     <g transform="translate(120, 146)">
-      <ellipse cx="7" cy="10" rx="6" ry="2.5" fill="#111310" opacity="0.45" />
-      <rect x="2" y="2" width="10" height="6.5" rx="1.5" fill="#c7cabf" />
-      <rect x="4" y="2" width="4" height="3.5" fill="#3a403a" />
-      <rect x="10.5" y="0.5" width="4.5" height="4.5" rx="1" fill="#c7cabf" />
+      <ellipse cx="7.5" cy="10.5" rx="6.5" ry="2.5" fill="#111310" opacity="0.45" />
+      <rect x="1.5" y="2" width="11" height="7" rx="1.5" fill="#fff8e7" />
+      <rect x="4" y="2" width="4.5" height="3.5" fill="#3a423d" />
+      <rect x="10.5" y="0" width="5" height="5" rx="1" fill="#fff8e7" />
+      <rect x="14" y="2.5" width="2.8" height="2.4" rx="0.8" fill="#eda8a2" />
     </g>
 
     <g transform="translate(226, 152)">
-      <ellipse cx="7" cy="10" rx="6" ry="2.5" fill="#111310" opacity="0.45" />
-      <rect x="2" y="2" width="10" height="6.5" rx="1.5" fill="#c9adb6" />
-      <rect x="5" y="2" width="3.5" height="3.5" fill="#8b6875" />
-      <rect x="0" y="0.5" width="4.5" height="4.5" rx="1" fill="#c9adb6" />
+      <ellipse cx="7.5" cy="10.5" rx="6.5" ry="2.5" fill="#111310" opacity="0.45" />
+      <rect x="2.5" y="2" width="11" height="7" rx="1.5" fill="#ffd8e5" />
+      <rect x="6" y="2" width="4" height="3.5" fill="#e87fa8" />
+      <rect x="0" y="0" width="5" height="5" rx="1" fill="#ffd8e5" />
+      <rect x="-1.2" y="2.5" width="2.8" height="2.4" rx="0.8" fill="#f1ada6" />
     </g>
 
     <!-- Lifted cow inside tractor beam -->
     <g class="pp-lifted-cow" transform="translate(173, 124)">
-      <rect x="1" y="2" width="11" height="7" rx="1.5" fill="#d5d7cf" />
-      <rect x="4" y="2" width="4" height="3.5" fill="#3d443d" />
-      <rect x="10.5" y="0.5" width="4.5" height="4.5" rx="1" fill="#d5d7cf" />
+      <rect x="1" y="2" width="11" height="7" rx="1.5" fill="#fff8e7" />
+      <rect x="4" y="2" width="4.5" height="3.5" fill="#3a423d" />
+      <rect x="10" y="0" width="5" height="5" rx="1" fill="#fff8e7" />
+      <rect x="13.5" y="2.5" width="2.8" height="2.4" rx="0.8" fill="#eda8a2" />
     </g>
 
     <!-- Small hay bale & rock -->
@@ -90,10 +93,10 @@
   <g class="pp-ufo" transform="translate(180, 66)">
     <ellipse cx="0" cy="6" rx="28" ry="8.5" fill="#394943" stroke="#6d8177" stroke-width="1" />
     <ellipse cx="0" cy="3" rx="31" ry="8" fill="#889b90" />
-    <ellipse cx="0" cy="-2" rx="16" ry="11" fill="#576f68" stroke="#99ada1" stroke-width="0.9" />
-    <ellipse cx="-5" cy="-5" rx="4.5" ry="2.2" fill="#c7d4cc" opacity="0.45" />
-    <line x1="0" y1="-13" x2="0" y2="-20" stroke="#6f8379" stroke-width="1.4" />
-    <circle cx="0" cy="-21" r="2.2" fill="#a68b67" />
+    <path d="M -15,2 A 15,14 0 0 1 15,2 Q 0,5.5 -15,2 Z" fill="#576f68" stroke="#99ada1" stroke-width="0.9" />
+    <path d="M -9,-4 Q -4.5,-8.5 1.5,-7" stroke="#c7d4cc" stroke-width="2" stroke-linecap="round" opacity="0.45" />
+    <line x1="0" y1="-12" x2="0" y2="-19" stroke="#6f8379" stroke-width="1.4" />
+    <circle cx="0" cy="-20" r="2.2" fill="#a68b67" />
     <!-- Rim lights (muted ochre) -->
     <circle cx="-21" cy="3.5" r="1.7" fill="#c0a57c" />
     <circle cx="-10" cy="6.2" r="1.7" fill="#c0a57c" />

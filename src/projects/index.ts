@@ -3,6 +3,7 @@ import BammiPreview from './bammi/Preview.svelte';
 import MoojongPreview from './moojong/Preview.svelte';
 import PasturePatrolPreview from './pasture-patrol/Preview.svelte';
 import PastureTacticsPreview from './pasture-tactics/Preview.svelte';
+import UdderHavocPreview from './udder-havoc/Preview.svelte';
 
 export interface ProjectEntry {
   slug: string;
@@ -16,6 +17,17 @@ export interface ProjectEntry {
 }
 
 export const projects: ProjectEntry[] = [
+  {
+    slug: 'udder-havoc',
+    title: 'Udder Havoc',
+    description:
+      'Endless recoil-skating pasture shooter: surf kickback from your corn bazooka, dodge saucer beams, and stack chaotic farm powerups.',
+    category: 'game',
+    tags: ['Three.js', 'Arena', 'Web Audio'],
+    year: 2026,
+    preview: UdderHavocPreview,
+    load: () => import('./udder-havoc/UdderHavoc.svelte'),
+  },
   {
     slug: 'pasture-tactics',
     title: 'Pasture Tactics',

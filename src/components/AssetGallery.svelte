@@ -12,8 +12,8 @@
     history.replaceState(history.state, '', url.pathname + url.search + url.hash);
   }
 
-  export interface GalleryItem {
-    id: MiniatureId;
+  export interface GalleryItem<T extends string = MiniatureId> {
+    id: T;
     name: string;
     group: string;
     badge: string;
@@ -34,7 +34,7 @@
     Delete02Icon,
     Tick01Icon,
   } from '@hugeicons/core-free-icons';
-  import { createTurntable } from '../lib/turntable';
+  import { createTurntable, type ModelBuilder } from '../lib/turntable';
   import Icon from './Icon.svelte';
 
   type ReviewStatus = 'ok' | 'tweak' | 'redo' | '';
@@ -48,10 +48,11 @@
   interface Props {
     title: string;
     storageKey: string;
-    items: GalleryItem[];
+    items: GalleryItem<string>[];
     groups: Record<string, GalleryGroup>;
     previews?: Record<string, string>;
     tags?: Record<string, string>;
+    buildModel?: ModelBuilder;
     onClose: () => void;
   }
 
@@ -63,9 +64,10 @@
   // Status/comment review + JSON export only exist on the dev server; Vite folds this to `false` in builds so those branches drop out.
   const REVIEW = import.meta.env.DEV;
 
-  let { title, storageKey, items, groups, previews, tags, onClose }: Props = $props();
+  let { title, storageKey, items, groups, previews, tags, buildModel, onClose }: Props = $props();
 
-  const turntable = createTurntable();
+  // svelte-ignore state_referenced_locally
+  const turntable = createTurntable(buildModel);
   $effect(() => turntable.destroy);
 
   function loadSaved(): Record<string, ReviewEntry> {
@@ -136,7 +138,7 @@
   const focusedIndex = $derived(
     focusedId ? filteredDesigns.findIndex((d) => d.id === focusedId) : -1,
   );
-  const focusedDesign = $derived<GalleryItem | null>(
+  const focusedDesign = $derived<GalleryItem<string> | null>(
     focusedIndex >= 0 ? filteredDesigns[focusedIndex] : null,
   );
 

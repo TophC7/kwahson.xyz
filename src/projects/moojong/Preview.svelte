@@ -64,7 +64,7 @@
       <rect x="0" y="0" width="44" height="52" rx="5" fill="url(#mj-ivory)" stroke="#c7baa0" stroke-width="1" />
       <rect x="5" y="5" width="34" height="42" rx="3" fill="#e9f1ef" stroke="#6d9c98" stroke-width="0.9" />
       <ellipse cx="22" cy="29" rx="12" ry="4.5" fill="#88a89d" />
-      <ellipse cx="22" cy="26" rx="6.5" ry="5" fill="#528a82" />
+      <path d="M 15.5,28 A 6.5,6.5 0 0 1 28.5,28 Q 22,29.8 15.5,28 Z" fill="#528a82" />
       <circle cx="16" cy="29.5" r="1.2" fill="#e6bf5e" />
       <circle cx="22" cy="30.5" r="1.2" fill="#e6bf5e" />
       <circle cx="28" cy="29.5" r="1.2" fill="#e6bf5e" />

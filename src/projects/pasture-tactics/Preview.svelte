@@ -36,12 +36,10 @@
     <!-- Cow on (1, 2), facing the visitor. -->
     <g transform="translate(34 68)"><g class="pt-cow">
       <ellipse cx="17" cy="28" rx="13" ry="3" fill="#1b241a" opacity="0.45" />
-      <path d="M7 23v5m11-5v5" stroke="#3a423d" stroke-width="4" />
-      <rect x="4" y="13" width="20" height="12" rx="3" fill="#fff8e7" stroke="#c8c2b2" />
-      <rect x="7" y="13" width="8" height="6" rx="1.5" fill="#3a423d" />
-      <rect x="20" y="10" width="9" height="10" rx="2" fill="#fff8e7" stroke="#c8c2b2" />
-      <circle cx="26" cy="13" r="1" fill="#3a423d" />
-      <rect x="25" y="16" width="7" height="4" rx="1.5" fill="#eda8a2" />
+      <rect x="4" y="13" width="20" height="12" rx="3" fill="#fff8e7" />
+      <rect x="7" y="13" width="8" height="6" rx="1" fill="#3a423d" />
+      <rect x="20" y="10" width="9" height="10" rx="2" fill="#fff8e7" />
+      <rect x="26" y="15" width="6" height="4.5" rx="1.5" fill="#eda8a2" />
       {#each [7, 14, 21] as x (x)}
         <rect {x} y="2" width="6" height="3" rx="1" fill="#c3d4b8" />
       {/each}

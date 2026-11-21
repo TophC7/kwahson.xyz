@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { attachBazooka } from '../../lib/bazookaCow';
 import { buildMiniature, type MiniatureId, type StudioBuilder } from '../../lib/miniatures';
 
 export type Animal = 'cow' | 'chicken' | 'sheep' | 'goat' | 'pig' | 'gunner';
@@ -27,12 +28,7 @@ export function createHerdModels(studio: StudioBuilder) {
   function animal(kind: Animal, special = false) {
     if (kind !== 'cow' && kind !== 'gunner') return { mesh: miniature(kind), legs: undefined };
     const model = studio.kit.makeCow({ special });
-    if (kind === 'gunner') {
-      const corn = miniature('corn');
-      corn.rotation.set(Math.PI / 2, 0, 0);
-      corn.position.set(0.34, 0.93, -0.49);
-      model.mesh.add(corn);
-    }
+    if (kind === 'gunner') attachBazooka(model.mesh, miniature('corn'), studio.kit);
     return model;
   }
   return { miniature, animal };
