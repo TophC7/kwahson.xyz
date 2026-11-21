@@ -341,7 +341,7 @@
   <!-- Bottom Farm Tool Shelf / Game Over Panel (fixed shelf height; tooltip floats via absolute positioning) -->
   <div
     bind:this={bottomEl}
-    class="pointer-events-none absolute inset-x-2 bottom-2.5 z-20 flex justify-center sm:inset-x-3 sm:bottom-4"
+    class="pointer-events-none absolute inset-x-2 bottom-0 z-20 flex justify-center pb-[max(14px,env(safe-area-inset-bottom))] sm:inset-x-3 sm:pb-4"
   >
     {#if hud.phase === 'gameover'}
       <div
