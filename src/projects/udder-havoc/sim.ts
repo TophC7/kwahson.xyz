@@ -15,6 +15,8 @@ import {
 
 export const ARENA_HALF = 12.2;
 const COW_RADIUS = 0.56;
+// Opposite corners: cow center to the smallest enemy's XP drop. Boss gem drift stays inside this bound.
+const MAGNET_RANGE_CAP = Math.SQRT2 * (2 * ARENA_HALF - COW_RADIUS - ENEMY_TYPES.sprout.radius);
 const CHARGE_FULL_SEC = 0.72;
 const CHARGE_MIN_RELEASE = 0.22;
 
@@ -113,7 +115,7 @@ export interface SimPickup {
 
 type SimEvent =
   | { type: 'fire'; x: number; z: number; dx: number; dz: number; gold: boolean }
-  | { type: 'backblast'; x: number; z: number; dx: number; dz: number }
+  | { type: 'backblast'; x: number; z: number; dx: number; dz: number; range: number; gold: boolean }
   | { type: 'hit'; x: number; z: number; color: number; count: number; crit: boolean }
   | { type: 'kill'; x: number; z: number; kind: EnemyKind }
   | { type: 'milk'; x: number; z: number; radius: number }
@@ -464,7 +466,8 @@ function spawnHealerCow(state: SimState) {
 }
 
 function chooseUpgradePool(state: SimState): PowerupId[] {
-  const pool = POWERUPS.map(p => p.id);
+  const magnetMaxed = state.powerups.magnet > 0 && getStats(state).magnetRadius >= MAGNET_RANGE_CAP;
+  const pool = POWERUPS.filter(p => p.id !== 'magnet' || !magnetMaxed).map(p => p.id);
   const picks: PowerupId[] = [];
   while (picks.length < 3 && pool.length > 0) {
     const idx = Math.floor(state.rng() * pool.length);
@@ -513,11 +516,12 @@ export function getStats(state: SimState) {
     milkDamage: p.milk > 0 ? 11 + 7 * (p.milk - 1) : 0,
     pumpkinChance: p.pumpkin > 0 ? Math.min(0.65, 0.18 + 0.12 * (p.pumpkin - 1)) : 0,
     homingTurn: p.homing > 0 ? 4.2 + 2.4 * (p.homing - 1) : 0,
-    backblastRange: p.backblast > 0 ? 3.2 + 0.55 * (p.backblast - 1) : 0,
+    backblastRange: p.backblast > 0 ? 1.6 + 0.8 * (p.backblast - 1) : 0,
     backblastDamage: p.backblast > 0 ? 12 + 8 * (p.backblast - 1) : 0,
     beeDamage: p.bees > 0 ? 12 + 5 * (p.bees - 1) : 0,
     trailDamage: p.trail > 0 ? 14 + 8 * (p.trail - 1) : 0,
-    magnetRadius: 3.2 + p.butter * 0.35 + p.magnet * 2.4,
+    magnetRadius: Math.min(MAGNET_RANGE_CAP, 3.2 + p.butter * 0.35 + p.magnet * 2.4),
+    pickupSpeedMult: 1 + p.magnet * 0.05,
     xpMult: 1 + p.magnet * 0.15,
   };
 }
@@ -568,7 +572,7 @@ function fireVolley(state: SimState, gold: boolean, chargeRatio: number) {
     const bz = -pl.aimZ;
     const range = stats.backblastRange * (gold ? 1.35 : 1);
     const dmg = Math.round(stats.backblastDamage * (gold ? 1.75 : 1));
-    state.events.push({ type: 'backblast', x: pl.x + bx * 0.7, z: pl.z + bz * 0.7, dx: bx, dz: bz });
+    state.events.push({ type: 'backblast', x: pl.x + bx * 0.7, z: pl.z + bz * 0.7, dx: bx, dz: bz, range, gold });
     for (const e of state.enemies) {
       const dx = e.x - pl.x;
       const dz = e.z - pl.z;
@@ -1235,10 +1239,10 @@ export function stepSim(state: SimState, input: SimInput, rawDt: number) {
     if (pk.kind === 'healer') {
       if (Math.abs(pk.x) > ARENA_HALF - 1) pk.vx *= -1;
       if (Math.abs(pk.z) > ARENA_HALF - 1) pk.vz *= -1;
-      if (state.powerups.magnet > 0 && d2 < stats.magnetRadius * stats.magnetRadius) {
+      if (state.powerups.magnet > 0 && d2 <= stats.magnetRadius * stats.magnetRadius) {
         const [mxp, mzp] = norm(dx, dz);
-        pk.x += mxp * 2.8 * dt;
-        pk.z += mzp * 2.8 * dt;
+        pk.x += mxp * 2.8 * stats.pickupSpeedMult * dt;
+        pk.z += mzp * 2.8 * stats.pickupSpeedMult * dt;
       }
       pk.x += pk.vx * dt;
       pk.z += pk.vz * dt;
@@ -1252,9 +1256,9 @@ export function stepSim(state: SimState, input: SimInput, rawDt: number) {
 
     pk.vx *= Math.exp(-5 * dt);
     pk.vz *= Math.exp(-5 * dt);
-    if (d2 < stats.magnetRadius * stats.magnetRadius) {
+    if (d2 <= stats.magnetRadius * stats.magnetRadius) {
       const [mxp, mzp, d] = norm(dx, dz);
-      const pull = 10 + (1 - d / stats.magnetRadius) * 14;
+      const pull = Math.min((10 + (1 - d / stats.magnetRadius) * 14) * stats.pickupSpeedMult, d / dt);
       pk.vx = mxp * pull;
       pk.vz = mzp * pull;
     }

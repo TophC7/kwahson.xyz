@@ -219,7 +219,7 @@ export const POWERUPS: readonly PowerupDef[] = [
     id: 'backblast',
     name: 'Backblast Cone',
     tag: 'RECOIL',
-    desc: 'Every shot scorches and shoves chasers behind your hooves.',
+    desc: 'Shots scorch and shove enemies behind you. Each stack extends the cone and hits harder.',
     accent: '#ff8f5a',
   },
   {
@@ -247,7 +247,7 @@ export const POWERUPS: readonly PowerupDef[] = [
     id: 'magnet',
     name: 'Barn Magnet',
     tag: 'GREED',
-    desc: 'Wide XP and healer pull across the pasture plus +15% XP gain.',
+    desc: '+2.4 XP/healer pull range, +5% pickup speed, and +15% XP per stack. Stops appearing at full-pasture range.',
     accent: '#d8786a',
   },
 ] as const;

@@ -175,6 +175,33 @@ export function mountUdderHavoc({
     const beeMeshes = new Map<number, THREE.Object3D>();
     const pickupMeshes = new Map<number, { group: THREE.Group; legs?: { mesh: THREE.Mesh; phase: number }[] }>();
     const milkWaves: { group: THREE.Group; ring: THREE.Mesh; disc: THREE.Mesh; ringMat: THREE.MeshBasicMaterial; discMat: THREE.MeshBasicMaterial; radius: number; life: number; duration: number }[] = [];
+    const backblasts: { group: THREE.Group; rim: THREE.Mesh; fillMat: THREE.MeshBasicMaterial; rimMat: THREE.MeshBasicMaterial; life: number; gold: boolean }[] = [];
+    // Match the damage cone's dot > 0.35; these shared sectors face local +Z.
+    const blastHalfAngle = Math.acos(0.35);
+    const blastFillGeo = new THREE.CircleGeometry(1, 32, -Math.PI / 2 - blastHalfAngle, blastHalfAngle * 2);
+    const blastRimGeo = new THREE.RingGeometry(0.87, 1, 32, 1, -Math.PI / 2 - blastHalfAngle, blastHalfAngle * 2);
+    add(() => {
+      blastFillGeo.dispose();
+      blastRimGeo.dispose();
+    });
+
+    function spawnBackblast(x: number, z: number, dx: number, dz: number, range: number, gold: boolean) {
+      const group = new THREE.Group();
+      const fillMat = new THREE.MeshBasicMaterial({ color: 0xff782f, transparent: true, opacity: 0.34, depthWrite: false });
+      const rimMat = new THREE.MeshBasicMaterial({ color: 0xffe6a3, transparent: true, opacity: 1, depthWrite: false });
+      const fill = new THREE.Mesh(blastFillGeo, fillMat);
+      const rim = new THREE.Mesh(blastRimGeo, rimMat);
+      fill.rotation.x = rim.rotation.x = -Math.PI / 2;
+      rim.position.y = 0.015;
+      rim.scale.setScalar(0.2);
+      group.add(fill, rim);
+      // Keep the flash at the shot's origin, even while recoil moves the cow.
+      group.position.set(x - dx * 0.7, 0.12, z - dz * 0.7);
+      group.rotation.y = Math.atan2(dx, dz);
+      group.scale.setScalar(range);
+      entityRoot.add(group);
+      backblasts.push({ group, rim, fillMat, rimMat, life: 1, gold });
+    }
 
     const popcornGeo = new THREE.IcosahedronGeometry(0.18, 0);
     const xpMat = new THREE.MeshStandardMaterial({
@@ -317,6 +344,12 @@ export function mountUdderHavoc({
         w.ringMat.dispose();
         w.discMat.dispose();
       }
+      for (const blast of backblasts) {
+        entityRoot.remove(blast.group);
+        blast.fillMat.dispose();
+        blast.rimMat.dispose();
+      }
+      backblasts.length = 0;
       enemyMeshes.clear();
       projMeshes.clear();
       beamMeshes.clear();
@@ -521,6 +554,7 @@ export function mountUdderHavoc({
     let aimStickX = 0;
     let aimStickZ = 0;
     let aimStickActive = false;
+    let manualChargeAim = false;
 
     window.addEventListener('keydown', e => {
       if (sim.pendingChoices && !paused && !sim.ended && ['Digit1', 'Digit2', 'Digit3'].includes(e.code)) {
@@ -731,6 +765,22 @@ export function mountUdderHavoc({
         w.discMat.opacity = (1 - t) * 0.45;
       }
 
+      for (let i = backblasts.length - 1; i >= 0; i--) {
+        const blast = backblasts[i];
+        blast.life -= dt / (blast.gold ? 0.28 : 0.18);
+        if (blast.life <= 0) {
+          entityRoot.remove(blast.group);
+          blast.fillMat.dispose();
+          blast.rimMat.dispose();
+          backblasts.splice(i, 1);
+          continue;
+        }
+        // Damage is instant: show the full footprint immediately, then sweep its rim outward.
+        blast.rim.scale.setScalar(1 - 0.8 * blast.life ** 3);
+        blast.fillMat.opacity = (blast.gold ? 0.34 : 0.1) * blast.life ** 2;
+        blast.rimMat.opacity = (blast.gold ? 1 : 0.36) * blast.life;
+      }
+
       // Sync Guard Bees
       const activeBees = new Set<number>();
       for (const bee of sim.guardBees) {
@@ -809,7 +859,7 @@ export function mountUdderHavoc({
             if (ev.gold) shake = Math.max(shake, 0.26);
             break;
           case 'backblast':
-            bursts.spawn(tmpVec.set(ev.x, 0.45, ev.z), 0xff8f5a, 9);
+            spawnBackblast(ev.x, ev.z, ev.dx, ev.dz, ev.range, ev.gold);
             break;
           case 'hit':
             audio.playHit(ev.crit);
@@ -910,7 +960,12 @@ export function mountUdderHavoc({
         let aimDirX = 0;
         let aimDirZ = 0;
         let hasManualAim = false;
-        if (aimMode !== 'auto' && aimStickActive) {
+        // Release clears the pad/buttons before this frame; fire along the last manual aim.
+        if (!charging && manualChargeAim && aimMode !== 'auto') {
+          aimDirX = sim.player.aimX;
+          aimDirZ = sim.player.aimZ;
+          hasManualAim = true;
+        } else if (aimMode !== 'auto' && aimStickActive) {
           if (Math.hypot(aimStickX, aimStickZ) > 0.14) {
             aimDirX = aimStickX + aimStickZ;
             aimDirZ = aimStickZ - aimStickX;
@@ -929,6 +984,7 @@ export function mountUdderHavoc({
         }
 
         stepSim(sim, { moveX, moveZ, aimDirX, aimDirZ, hasManualAim, charging }, dt);
+        manualChargeAim = charging && hasManualAim;
         consumeEvents();
         bursts.update(dt);
         syncVisuals(dt);
@@ -987,6 +1043,7 @@ export function mountUdderHavoc({
           layout: options.layout,
         });
         paused = false;
+        manualChargeAim = false;
         statusMsg = `${SEASON_DEFS[sim.season].label} · ${DAYTIME_DEFS[sim.daytime].label} · ${LAYOUT_DEFS[sim.layout].label}`;
         statusTimer = 4;
         applyEnvironment();
