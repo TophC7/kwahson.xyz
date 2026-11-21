@@ -449,10 +449,37 @@ export type MiniatureId =
   | 'plasma-orb' | 'splitter' | 'sniper' | 'boss-harvester' | 'boss-strider' | 'boss-queen'
   | 'moon' | 'lantern'
   | 'comet' | 'season-spring' | 'season-summer' | 'season-autumn' | 'season-winter' | 'bloom-hibiscus' | 'bloom-sunflower' | 'bloom-allium'
-  | 'bloom-forget-me-not';
+  | 'bloom-forget-me-not'
+  | 'pea' | 'blueberry' | 'strawberry' | 'lemon' | 'garlic' | 'turnip' | 'pineapple' | 'cauliflower' | 'watermelon';
 
 export function buildMiniature(studio: StudioBuilder, id: MiniatureId): THREE.Group {
   const { kit, part, mesh, smoothCyl, smoothTorus, track } = studio;
+
+  function addRadialLeaves(
+    parent: THREE.Object3D,
+    geo: THREE.BufferGeometry,
+    opts: {
+      count: number;
+      y: number;
+      z: number;
+      tilt: number;
+      offset?: number;
+      color: number | ((i: number) => number);
+      roughness?: number;
+      flat?: boolean;
+    },
+  ) {
+    const offset = opts.offset ?? 0;
+    for (let i = 0; i < opts.count; i++) {
+      const h = new THREE.Group();
+      h.position.set(0, opts.y, 0);
+      h.rotation.y = (i * Math.PI * 2) / opts.count + offset;
+      const col = typeof opts.color === 'function' ? opts.color(i) : opts.color;
+      const leaf = mesh(h, geo, col, [0, 0, opts.z], { roughness: opts.roughness, flat: opts.flat });
+      leaf.rotation.x = opts.tilt;
+      parent.add(h);
+    }
+  }
 
   switch (id) {
     // -------------------------------------------------------------------------
@@ -2290,6 +2317,306 @@ export function buildMiniature(studio: StudioBuilder, id: MiniatureId): THREE.Gr
         g.add(fl);
       }
 
+      return g;
+    }
+
+    // -------------------------------------------------------------------------
+    // HARVEST DROP CROPS
+    // -------------------------------------------------------------------------
+    case 'pea': {
+      // Plump bright-green garden pea with tiny stem dimple + leaf speck so rolling is readable
+      const g = new THREE.Group();
+      const bodyGeo = track(new THREE.SphereGeometry(0.45, 12, 8));
+      mesh(g, bodyGeo, 0x74cf46, [0, 0.45, 0], { roughness: 0.72 });
+      mesh(g, track(new THREE.SphereGeometry(0.11, 8, 6)), 0xa8e878, [-0.14, 0.62, 0.28], { roughness: 0.65 });
+      const stem = part(g, 'cylinder', 0x4b8732, [0.055, 0.14, 0.055], [0.02, 0.9, 0]);
+      stem.rotation.z = -0.22;
+      return g;
+    }
+
+    case 'blueberry': {
+      // Deep indigo berry with faceted 5-point crown calyx
+      const g = new THREE.Group();
+      const berryPts = [
+        new THREE.Vector2(0.0, 0.04),
+        new THREE.Vector2(0.28, 0.08),
+        new THREE.Vector2(0.46, 0.28),
+        new THREE.Vector2(0.48, 0.54),
+        new THREE.Vector2(0.34, 0.76),
+        new THREE.Vector2(0.16, 0.84),
+        new THREE.Vector2(0.0, 0.78),
+      ];
+      const berryGeo = track(new THREE.LatheGeometry(berryPts, 10));
+      mesh(g, berryGeo, 0x3b59b5, [0, 0, 0], { roughness: 0.74 });
+      const crownGeo = makeLowPolyPetalGeo(studio, 0.18, 0.07, 0.025);
+      addRadialLeaves(g, crownGeo, { count: 5, y: 0.8, z: 0.09, tilt: 0.65, color: 0x627fe0, roughness: 0.8 });
+      return g;
+    }
+
+    case 'strawberry': {
+      // Tapered heart-shaped red berry with golden seeds and 5-leaf green calyx cap
+      const g = new THREE.Group();
+      const berryPts = [
+        new THREE.Vector2(0.0, 0.0),
+        new THREE.Vector2(0.12, 0.08),
+        new THREE.Vector2(0.28, 0.26),
+        new THREE.Vector2(0.42, 0.52),
+        new THREE.Vector2(0.44, 0.74),
+        new THREE.Vector2(0.32, 0.9),
+        new THREE.Vector2(0.14, 0.95),
+        new THREE.Vector2(0.0, 0.95),
+      ];
+      const berryGeo = track(new THREE.LatheGeometry(berryPts, 10));
+      mesh(g, berryGeo, 0xd9383a, [0, 0, 0], { roughness: 0.72 });
+
+      // Seed specks around the berry
+      const seedGeo = track(new THREE.SphereGeometry(0.028, 5, 4));
+      for (let row = 0; row < 3; row++) {
+        const y = 0.28 + row * 0.22;
+        const r = row === 0 ? 0.28 : row === 1 ? 0.42 : 0.43;
+        const count = row === 0 ? 5 : 7;
+        for (let i = 0; i < count; i++) {
+          const a = (i * Math.PI * 2) / count + row * 0.45;
+          mesh(g, seedGeo, 0xf7d768, [Math.cos(a) * r, y, Math.sin(a) * r], { roughness: 0.65 });
+        }
+      }
+
+      const leafGeo = makeLowPolyPetalGeo(studio, 0.28, 0.11, 0.024);
+      addRadialLeaves(g, leafGeo, { count: 5, y: 0.94, z: 0.04, tilt: 1.25, color: 0x5da145, roughness: 0.82 });
+      part(g, 'cylinder', 0x4c8538, [0.05, 0.16, 0.05], [0, 1.01, 0]);
+      return g;
+    }
+
+    case 'lemon': {
+      // Matte flat-shaded 8-sided low-poly sunny lemon with soft blunt ends + green leaf
+      const g = new THREE.Group();
+      const lemonPts = [
+        new THREE.Vector2(0.0, 0.04),
+        new THREE.Vector2(0.12, 0.05),
+        new THREE.Vector2(0.18, 0.10),
+        new THREE.Vector2(0.32, 0.22),
+        new THREE.Vector2(0.38, 0.40),
+        new THREE.Vector2(0.38, 0.56),
+        new THREE.Vector2(0.32, 0.74),
+        new THREE.Vector2(0.18, 0.86),
+        new THREE.Vector2(0.12, 0.90),
+        new THREE.Vector2(0.0, 0.91),
+      ];
+      const lemonGeo = track(new THREE.LatheGeometry(lemonPts, 8));
+      mesh(g, lemonGeo, 0xf2d338, [0, 0, 0], { roughness: 0.84 });
+
+      const stem = part(g, 'box', 0x5c7838, [0.05, 0.11, 0.05], [0, 0.94, 0]);
+      stem.rotation.z = 0.2;
+      const leafGeo = makeLowPolyPetalGeo(studio, 0.30, 0.13, 0.028);
+      const leaf = mesh(g, leafGeo, 0x629e44, [0.03, 0.91, 0.02], { roughness: 0.85 });
+      leaf.rotation.z = -1.05;
+      leaf.rotation.y = 0.25;
+      return g;
+    }
+
+    case 'garlic': {
+      // Sculpted multi-clove ivory garlic bulb tapering into a papery stem tuft
+      const g = new THREE.Group();
+      const clovePts = [
+        new THREE.Vector2(0.0, 0.02),
+        new THREE.Vector2(0.2, 0.04),
+        new THREE.Vector2(0.28, 0.24),
+        new THREE.Vector2(0.26, 0.48),
+        new THREE.Vector2(0.14, 0.72),
+        new THREE.Vector2(0.05, 0.92),
+        new THREE.Vector2(0.0, 0.98),
+      ];
+      const cloveGeo = track(new THREE.LatheGeometry(clovePts, 8));
+      for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI * 2) / 6;
+        const c = mesh(g, cloveGeo, i % 2 === 0 ? 0xf5efe0 : 0xe9dfd0, [Math.cos(a) * 0.16, 0, Math.sin(a) * 0.16], {
+          roughness: 0.84,
+        });
+        c.scale.set(0.95, 1, 0.82);
+        c.rotation.y = -a;
+      }
+      // Subtle mauve papery neck + trimmed root disc
+      mesh(g, track(new THREE.CylinderGeometry(0.075, 0.12, 0.28, 8)), 0xd8bed4, [0, 0.9, 0], { roughness: 0.86 });
+      mesh(g, track(new THREE.CylinderGeometry(0.13, 0.15, 0.05, 8)), 0xb39a79, [0, 0.02, 0], { roughness: 0.92 });
+      return g;
+    }
+
+    case 'turnip': {
+      // Violet-crowned white root bulb with tapered root tip and leafy green crown
+      const g = new THREE.Group();
+      const lowerPts = [
+        new THREE.Vector2(0.0, 0.0),
+        new THREE.Vector2(0.045, 0.09),
+        new THREE.Vector2(0.22, 0.22),
+        new THREE.Vector2(0.42, 0.36),
+        new THREE.Vector2(0.48, 0.54),
+        new THREE.Vector2(0.0, 0.54),
+      ];
+      mesh(g, track(new THREE.LatheGeometry(lowerPts, 10)), 0xf2ead6, [0, 0, 0], { roughness: 0.8 });
+
+      const upperPts = [
+        new THREE.Vector2(0.0, 0.52),
+        new THREE.Vector2(0.485, 0.52),
+        new THREE.Vector2(0.45, 0.72),
+        new THREE.Vector2(0.3, 0.88),
+        new THREE.Vector2(0.11, 0.94),
+        new THREE.Vector2(0.0, 0.94),
+      ];
+      mesh(g, track(new THREE.LatheGeometry(upperPts, 10)), 0x99499e, [0, 0, 0], { roughness: 0.78 });
+
+      const leafGeo = makePointedLeafGeo(studio, 0.44, 0.14, 0.026, 0.04);
+      addRadialLeaves(g, leafGeo, {
+        count: 3,
+        y: 0.92,
+        z: 0.03,
+        tilt: 0.44,
+        offset: 0.25,
+        color: (i) => (i === 0 ? 0x62a348 : 0x52913b),
+        flat: false,
+        roughness: 0.68,
+      });
+      return g;
+    }
+
+    case 'cauliflower': {
+      // Matte flat-shaded low-poly cauliflower dome cradled by sharp angular wrapper leaves
+      const g = new THREE.Group();
+      const curdGeo = track(new THREE.SphereGeometry(1, 6, 4));
+
+      const core = mesh(g, curdGeo, 0xf2ebd7, [0, 0.48, 0], { roughness: 0.88 });
+      core.scale.set(0.35, 0.3, 0.35);
+
+      const crown = mesh(g, curdGeo, 0xf9f4e4, [0, 0.72, 0], { roughness: 0.88 });
+      crown.scale.set(0.19, 0.15, 0.19);
+
+      for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI * 2) / 6;
+        const lower = mesh(
+          g,
+          curdGeo,
+          i % 2 === 0 ? 0xf6f0de : 0xe9e0c9,
+          [Math.cos(a) * 0.25, 0.45, Math.sin(a) * 0.25],
+          { roughness: 0.88 },
+        );
+        lower.scale.set(0.21, 0.18, 0.21);
+        lower.rotation.y = a;
+
+        const ua = a + Math.PI / 6;
+        const upper = mesh(
+          g,
+          curdGeo,
+          i % 2 === 0 ? 0xe9e0c9 : 0xf9f4e4,
+          [Math.cos(ua) * 0.17, 0.62, Math.sin(ua) * 0.17],
+          { roughness: 0.88 },
+        );
+        upper.scale.set(0.16, 0.14, 0.16);
+        upper.rotation.y = ua;
+      }
+
+      const leafGeo = makeLowPolyPetalGeo(studio, 0.52, 0.22, 0.036);
+      addRadialLeaves(g, leafGeo, {
+        count: 6,
+        y: 0.16,
+        z: 0.18,
+        tilt: 0.88,
+        offset: 0.26,
+        color: (i) => (i % 2 === 0 ? 0x6ba154 : 0x588a45),
+        roughness: 0.86,
+      });
+
+      mesh(g, track(new THREE.CylinderGeometry(0.16, 0.11, 0.18, 6)), 0x84ad6d, [0, 0.09, 0], {
+        roughness: 0.86,
+      });
+      return g;
+    }
+
+    case 'watermelon': {
+      // Matte flat-shaded low-poly faceted striped oval watermelon matching apple/pumpkin
+      const g = new THREE.Group();
+      const bodyGroup = new THREE.Group();
+      bodyGroup.position.set(0, 0.48, 0);
+      bodyGroup.scale.set(1.08, 0.94, 1.0);
+      g.add(bodyGroup);
+
+      const stripeCount = 6;
+      const unit = (Math.PI * 2) / (stripeCount * 3);
+      const darkArc = unit * 2;
+      const lightArc = unit;
+      const darkGeo = track(new THREE.SphereGeometry(0.49, 2, 6, 0, darkArc));
+      const lightGeo = track(new THREE.SphereGeometry(0.49, 1, 6, darkArc, lightArc));
+      for (let i = 0; i < stripeCount; i++) {
+        const rotY = i * (darkArc + lightArc);
+        const darkMesh = mesh(bodyGroup, darkGeo, 0x266b34, [0, 0, 0], { roughness: 0.86 });
+        darkMesh.rotation.y = rotY;
+        const lightMesh = mesh(bodyGroup, lightGeo, 0x7bc257, [0, 0, 0], { roughness: 0.86 });
+        lightMesh.rotation.y = rotY;
+      }
+
+      // Chunky low-poly woody stem + angular vine leaf
+      const stem = part(g, 'cylinder', 0x5d7341, [0.05, 0.18, 0.05], [0.02, 0.96, 0]);
+      stem.rotation.z = -0.28;
+      const leafGeo = makeLowPolyPetalGeo(studio, 0.28, 0.13, 0.028);
+      const leaf = mesh(g, leafGeo, 0x6ea052, [-0.02, 0.92, 0.04], { roughness: 0.86 });
+      leaf.rotation.z = 0.95;
+      leaf.rotation.x = 0.4;
+      return g;
+    }
+
+    case 'pineapple': {
+      // Matte flat-shaded 8-sided amber pineapple with diamond facets + layered spiky crown
+      const g = new THREE.Group();
+      const bodyPts = [
+        new THREE.Vector2(0.0, 0.02),
+        new THREE.Vector2(0.24, 0.04),
+        new THREE.Vector2(0.38, 0.22),
+        new THREE.Vector2(0.41, 0.46),
+        new THREE.Vector2(0.38, 0.72),
+        new THREE.Vector2(0.25, 0.88),
+        new THREE.Vector2(0.0, 0.90),
+      ];
+      const bodyGeo = track(new THREE.LatheGeometry(bodyPts, 8));
+      mesh(g, bodyGeo, 0xde8f28, [0, 0, 0], { roughness: 0.86 });
+
+      // Staggered low-poly diamond scale bosses wrapping the barrel
+      const scaleGeo = track(new THREE.OctahedronGeometry(0.1, 0));
+      for (let row = 0; row < 3; row++) {
+        const y = 0.26 + row * 0.21;
+        const r = row === 1 ? 0.37 : 0.34;
+        for (let i = 0; i < 8; i++) {
+          const a = (i * Math.PI * 2) / 8 + (row % 2 === 0 ? 0 : Math.PI / 8);
+          const boss = mesh(
+            g,
+            scaleGeo,
+            (i + row) % 2 === 0 ? 0xc27119 : 0xeba838,
+            [Math.cos(a) * r, y, Math.sin(a) * r],
+            { roughness: 0.86 },
+          );
+          boss.rotation.y = -a;
+          boss.scale.set(0.8, 1.15, 0.65);
+        }
+      }
+
+      // Layered spiky green crown
+      const outerLeafGeo = makeLowPolyPetalGeo(studio, 0.46, 0.13, 0.028);
+      addRadialLeaves(g, outerLeafGeo, {
+        count: 6,
+        y: 0.86,
+        z: 0.08,
+        tilt: 0.72,
+        color: (i) => (i % 2 === 0 ? 0x4b913f : 0x5ca64c),
+        roughness: 0.86,
+      });
+
+      const innerLeafGeo = makeLowPolyPetalGeo(studio, 0.42, 0.1, 0.026);
+      addRadialLeaves(g, innerLeafGeo, {
+        count: 5,
+        y: 0.9,
+        z: 0.04,
+        tilt: 0.26,
+        offset: 0.3,
+        color: 0x67b354,
+        roughness: 0.86,
+      });
       return g;
     }
   }

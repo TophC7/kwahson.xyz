@@ -11,10 +11,12 @@
     "check:tactics": "bun scripts/check-tactics.ts",
     "check:udder": "bun scripts/check-udder-havoc.ts",
     "check:corn": "bun scripts/check-corn-shots.ts",
-    "check:all": "bun run check && bun run check:tactics && bun run check:udder && bun run check:corn"
+    "check:harvest": "bun scripts/check-harvest-drop.ts",
+    "check:all": "bun run check && bun run check:tactics && bun run check:udder && bun run check:corn && bun run check:harvest"
   },
   "dependencies": {
     "@hugeicons/core-free-icons": "^4.4.0",
+    "planck": "^1.5.1",
     "three": "^0.187.0"
   },
   "devDependencies": {

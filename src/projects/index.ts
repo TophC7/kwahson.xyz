@@ -1,6 +1,7 @@
 import type { Component } from 'svelte';
 import BammiPreview from './bammi/Preview.svelte';
 import CornShotsPreview from './corn-shots/Preview.svelte';
+import HarvestDropPreview from './harvest-drop/Preview.svelte';
 import MoojongPreview from './moojong/Preview.svelte';
 import PasturePatrolPreview from './pasture-patrol/Preview.svelte';
 import PastureTacticsPreview from './pasture-tactics/Preview.svelte';
@@ -18,6 +19,17 @@ export interface ProjectEntry {
 }
 
 export const projects: ProjectEntry[] = [
+  {
+    slug: 'harvest-drop',
+    title: 'Harvest Drop',
+    description:
+      '2.5D polygon-physics crop merge crate: stack peas through corn and watermelons, earn handy farm tools on big merges, and poof Prize Pumpkins.',
+    category: 'game',
+    tags: ['Three.js', 'Physics', 'Puzzle'],
+    year: 2026,
+    preview: HarvestDropPreview,
+    load: () => import('./harvest-drop/HarvestDrop.svelte'),
+  },
   {
     slug: 'udder-havoc',
     title: 'Udder Havoc',
