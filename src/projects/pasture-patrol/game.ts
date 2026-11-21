@@ -15,6 +15,9 @@ import { createThreats } from './threats';
 // Distances in world units; timers in seconds.
 const HALF = 7.5;
 const UFO_SPEED = 9;
+// Thumb-stick top speed, below the cursor's: a thumb can't make the cursor's fine corrections.
+const STICK_SPEED = 6;
+const STICK_DEADZONE = 0.08;
 const COW_SPEED = 1.05;
 const SUCTION_RADIUS = 1.3;
 const COW_LIFT_SPEED = 1.55;
@@ -951,10 +954,14 @@ export function mountPasturePatrol({
       }
       if (stickActive) {
         const mag = Math.hypot(stickX, stickY);
-        if (mag > 0.06) {
+        if (mag > STICK_DEADZONE) {
+          // Squared response: small pushes creep for precise beaming, full tilt still crosses the field.
+          const t = Math.min(1, (mag - STICK_DEADZONE) / (1 - STICK_DEADZONE));
+          // Movement chases `target` at 7× its distance, so this offset yields the stick speed.
+          const reach = (STICK_SPEED * t * t) / 7 / mag;
           const wx = (stickX + stickY) * Math.SQRT1_2;
           const wz = (stickY - stickX) * Math.SQRT1_2;
-          target.set(clamp(player.x + wx * 1.5), 0, clamp(player.z + wz * 1.5));
+          target.set(clamp(player.x + wx * reach), 0, clamp(player.z + wz * reach));
         } else {
           target.copy(player);
         }
