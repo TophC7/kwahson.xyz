@@ -2,18 +2,16 @@
   import GameStage from '../../components/GameStage.svelte';
   import { untrack } from 'svelte';
   import {
-    Alert02Icon, Award01Icon, Cancel01Icon, DiceIcon, GridViewIcon, HelpCircleIcon, RepeatIcon, Share08Icon,
+    Alert02Icon, Award01Icon, Cancel01Icon, DiceIcon, HelpCircleIcon, RepeatIcon, Share08Icon,
     Undo02Icon, VolumeHighIcon, VolumeOffIcon, ZoomInAreaIcon,
   } from '@hugeicons/core-free-icons';
   import Icon from '../../components/Icon.svelte';
-  import AssetGallery, { galleryLinked, linkGallery } from '../../components/AssetGallery.svelte';
   import Button from '../../components/ui/Button.svelte';
   import ModalDialog from '../../components/ui/ModalDialog.svelte';
   import SeedShareDialog from '../../components/ui/SeedShareDialog.svelte';
   import SegmentedControl, { type SegmentedOption } from '../../components/ui/SegmentedControl.svelte';
   import StatusPill from '../../components/ui/StatusPill.svelte';
   import { CROP_COUNT, DIFFICULTIES, DIFFICULTY_LEVELS, ENEMIES, ENEMY_KINDS, HEROES, HERO_KINDS, HOLD_TURNS, ITEMS, POWER_PER_TURN, type Difficulty } from './data';
-  import { GALLERY_GROUPS, GALLERY_ITEMS, GALLERY_TAGS } from './models';
   import { mountPastureTactics, type TacticsController, type TacticsHudState } from './scene';
 
   type PendingFight = { kind: 'retry' } | { kind: 'new'; difficulty: Difficulty };
@@ -43,7 +41,6 @@
   let portraits = $state.raw<Record<string, string>>({});
   let showGuide = $state(false);
   let showShare = $state(false);
-  let showGallery = $state(galleryLinked());
   let pendingFight = $state<PendingFight | null>(null);
   let armedEnd = $state(false);
   let armTimer = 0;
@@ -56,11 +53,6 @@
   const spending = $derived(hud.pendingItem ? ITEMS[hud.pendingItem].power : 0);
   const guideLine = $derived(hud.phase === 'enemy' ? 'Visitors are acting…' : 'Tap a herd animal to give orders');
   const statusTone = $derived(hud.phase === 'lost' ? 'danger' : hud.phase === 'enemy' ? 'ochre' : 'sage');
-
-  function setGalleryOpen(open: boolean) {
-    showGallery = open;
-    linkGallery(open);
-  }
 
   function runFight(next: PendingFight) {
     pendingFight = null;
@@ -192,7 +184,6 @@
         <Button variant="surface" size="md" icon={Share08Icon} iconSize={16} hideLabelOnMobile aria-label="Share" title="Share this fight or play another seed" aria-expanded={showShare} onclick={() => (showShare = true)}>Share</Button>
         <Button variant="surface" size="md" icon={hud.muted ? VolumeOffIcon : VolumeHighIcon} iconSize={16} hideLabelOnMobile active={hud.muted} aria-label={hud.muted ? 'Unmute sound' : 'Mute sound'} title="Toggle sound (M)" onclick={() => controller?.toggleMute()}>Sound</Button>
         <Button variant="surface" size="md" icon={HelpCircleIcon} iconSize={16} hideLabelOnMobile aria-label="Guide" title="How to play" aria-expanded={showGuide} onclick={() => (showGuide = true)}>Guide</Button>
-        <Button variant="surface" size="md" icon={GridViewIcon} iconSize={16} hideLabelOnMobile aria-label="Assets" title="Inspect assets" aria-expanded={showGallery} onclick={() => setGalleryOpen(true)}>Assets</Button>
         {#if hud.zoomed}
           <Button variant="surface" size="md" icon={ZoomInAreaIcon} iconSize={16} hideLabelOnMobile aria-label="Fit" title="Reset board zoom" onclick={() => controller?.resetView()}>Fit</Button>
         {/if}
@@ -339,7 +330,7 @@
   </ModalDialog>
 
   <ModalDialog
-    open={result && !showGallery && !showGuide && !showShare && pendingFight === null}
+    open={result && !showGuide && !showShare && pendingFight === null}
     dismissible={false}
     eyebrow="Fight complete"
     title={hud.status}
@@ -366,6 +357,4 @@
       </div>
     {/snippet}
   </ModalDialog>
-
-  {#if showGallery}<AssetGallery title="Pasture Tactics Assets" storageKey="pasture-tactics-asset-review-v1" items={GALLERY_ITEMS} groups={GALLERY_GROUPS} tags={GALLERY_TAGS} onClose={() => setGalleryOpen(false)} />{/if}
 </div>

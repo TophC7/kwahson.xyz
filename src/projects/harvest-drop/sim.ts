@@ -117,6 +117,31 @@ interface InternalCrop {
   popTimer: number;
 }
 
+export interface HarvestCropSave {
+  tier: number;
+  x: number;
+  y: number;
+  angle: number;
+  vx: number;
+  vy: number;
+  av: number;
+}
+
+export interface HarvestSave {
+  v: 1;
+  seed: number;
+  score: number;
+  combo: number;
+  pumpkinsHarvested: number;
+  mergesSinceAward: number;
+  currentTier: number;
+  nextTier: number;
+  maxDropTier: number;
+  phase: 'playing' | 'gameover';
+  heldPowerups: PowerupKind[];
+  crops: HarvestCropSave[];
+}
+
 export interface HarvestSim {
   readonly score: number;
   readonly combo: number;
@@ -140,6 +165,8 @@ export interface HarvestSim {
     kind: PowerupKind,
     target?: { slot?: number; cropId?: number; point?: { x: number; y: number } },
   ): SimEvent[];
+  exportState(): HarvestSave;
+  importState(save: HarvestSave): boolean;
   reset(newSeed?: number): void;
 }
 
@@ -710,6 +737,63 @@ export function createHarvestSim(
     canUseTool,
     isValidPowerupTarget,
     useTool,
+    exportState(): HarvestSave {
+      return {
+        v: 1,
+        seed,
+        score,
+        combo,
+        pumpkinsHarvested,
+        mergesSinceAward,
+        currentTier,
+        nextTier,
+        maxDropTier,
+        phase,
+        heldPowerups: [...heldPowerups],
+        crops: Array.from(crops.values(), (c) => {
+          const p = c.body.getPosition();
+          const v = c.body.getLinearVelocity();
+          return {
+            tier: c.tier,
+            x: p.x,
+            y: p.y,
+            angle: c.body.getAngle(),
+            vx: v.x,
+            vy: v.y,
+            av: c.body.getAngularVelocity(),
+          };
+        }),
+      };
+    },
+    importState(save: HarvestSave): boolean {
+      if (!save || save.v !== 1 || save.phase !== 'playing' || !Array.isArray(save.crops)) return false;
+      seed = (save.seed >>> 0) || randomSeed();
+      rng = mulberry32(seed);
+      nextId = 1;
+      score = Math.max(0, save.score || 0);
+      combo = Math.max(0, save.combo || 0);
+      comboIdleTimer = 0;
+      pumpkinsHarvested = Math.max(0, save.pumpkinsHarvested || 0);
+      mergesSinceAward = Math.max(0, save.mergesSinceAward || 0);
+      maxDropTier = Math.max(INITIAL_DROP_TIER, Math.min(MAX_DROPPABLE_TIER, save.maxDropTier || INITIAL_DROP_TIER));
+      currentTier = Math.max(1, Math.min(MAX_DROPPABLE_TIER, save.currentTier || 1));
+      nextTier = Math.max(1, Math.min(MAX_DROPPABLE_TIER, save.nextTier || 1));
+      dropCooldown = 0;
+      dangerTime = 0;
+      accumulator = 0;
+      phase = 'playing';
+      heldPowerups.length = 0;
+      if (Array.isArray(save.heldPowerups)) {
+        for (const k of save.heldPowerups.slice(0, MAX_POWERUP_SLOTS)) heldPowerups.push(k);
+      }
+      buildWorld();
+      for (const c of save.crops) {
+        if (c.tier < 1 || c.tier > MAX_TIER) continue;
+        const spawned = spawnCrop(c.tier, c.x, c.y, { angle: c.angle, vx: c.vx, vy: c.vy, grace: 0.4 });
+        spawned.body.setAngularVelocity(c.av || 0);
+      }
+      return true;
+    },
     reset,
   };
 }

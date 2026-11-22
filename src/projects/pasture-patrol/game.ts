@@ -3,6 +3,7 @@ import { createBursts } from '../../lib/bursts';
 import { isGameKey } from '../../lib/hotkeys';
 import { buildPastureTable, createPastureRenderer } from '../../lib/pastureTable';
 import { pick } from '../../lib/rng';
+import { onLeavePage, readStorage, writeStorage } from '../../lib/gameSave';
 import { scoped } from '../../lib/scope';
 import {
   createPastureKit,
@@ -557,6 +558,7 @@ export function mountPasturePatrol({
       syncHud();
       if (health === 0) {
         ended = true;
+        writeStorage(SAVE_KEY, '');
         audio.setActive(false);
         audio.playGameOver();
         onState({ ended: true });
@@ -687,8 +689,108 @@ export function mountPasturePatrol({
     const resizeObserver = new ResizeObserver(() => resize());
     resizeObserver.observe(viewport);
     add(() => resizeObserver.disconnect());
+    const SAVE_KEY = 'pasture-patrol-save-v1';
+
+    function saveRun() {
+      if (ended || elapsed <= 0) return;
+      const savedEntities = [];
+      for (const e of entities) {
+        if (e.retiring > 0 || e.egg) continue;
+        if (e.animal) {
+          savedEntities.push({
+            t: 'a',
+            k: e.animal,
+            s: !!e.special,
+            x: e.mesh.position.x,
+            z: e.mesh.position.z,
+            h: e.heading,
+            l: e.lift,
+          });
+        } else if (e.kind) {
+          savedEntities.push({
+            t: 'o',
+            k: e.kind,
+            x: e.mesh.position.x,
+            z: e.mesh.position.z,
+            h: e.heading,
+            l: e.lift,
+          });
+        }
+      }
+      writeStorage(
+        SAVE_KEY,
+        JSON.stringify({
+          v: 1,
+          health,
+          score,
+          abductions,
+          level: pressure.level,
+          combo,
+          chainLeft: Math.max(0, chainUntil - elapsed),
+          elapsed,
+          px: player.x,
+          pz: player.z,
+          entities: savedEntities,
+        }),
+      );
+    }
+
+    function restoreRun(): boolean {
+      const raw = readStorage(SAVE_KEY);
+      if (!raw) return false;
+      try {
+        const s = JSON.parse(raw);
+        if (!s || s.v !== 1 || typeof s.score !== 'number' || typeof s.health !== 'number' || s.health <= 0 || !Array.isArray(s.entities)) {
+          return false;
+        }
+        reset();
+        while (entities.length) removeEntity(entities.length - 1);
+        health = Math.min(MAX_HEALTH, Math.max(1, s.health));
+        score = Math.max(0, s.score);
+        abductions = Math.max(0, s.abductions || 0);
+        pressure = difficultyAt(Math.max(1, s.level || 1));
+        combo = Math.max(1, Math.min(MAX_COMBO, s.combo || 1));
+        elapsed = Math.max(0, s.elapsed || 0);
+        chainUntil = s.chainLeft > 0 ? elapsed + s.chainLeft : -1;
+        player.set(clamp(s.px || 0), 0, clamp(s.pz || 0));
+        target.copy(player);
+        camFocus.copy(player);
+        camera.position.copy(camFocus).add(CAM_OFFSET);
+        camera.lookAt(camFocus);
+        camera.updateMatrixWorld();
+        ufo.position.set(player.x, HOVER, player.z);
+        for (const item of s.entities) {
+          const pt = new THREE.Vector3(clamp(item.x || 0), 0, clamp(item.z || 0));
+          if (item.t === 'a' && item.k) {
+            const spawned = spawnAnimal(item.k as Animal, pt, !!item.s);
+            if (spawned) {
+              spawned.heading = item.h || 0;
+              spawned.lift = item.l || 0;
+            }
+          } else if (item.t === 'o' && item.k) {
+            const { mesh, roller } = makeObstacle(item.k as ObstacleKind);
+            const obs = addEntity(mesh, pt);
+            if (obs) {
+              obs.kind = item.k as ObstacleKind;
+              obs.roller = roller;
+              obs.heading = item.h || 0;
+              obs.lift = item.l || 0;
+              obs.lifetime = (obs.kind === 'hay' ? HAY_LIFETIME : DEBRIS_LIFETIME) + random(-3, 3);
+            }
+          }
+        }
+        syncHud();
+        setPaused(true);
+        setStatus('Patrol resumed');
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
     resize();
-    reset();
+    if (!restoreRun()) reset();
+    onLeavePage(scope, saveRun);
 
     const clock = new THREE.Clock();
     document.addEventListener(
@@ -1033,13 +1135,21 @@ export function mountPasturePatrol({
     }
 
     let rafId = 0;
+    let saveAccum = 0;
     add(() => cancelAnimationFrame(rafId));
     function animate() {
       if (signal.aborted) return;
       rafId = requestAnimationFrame(animate);
       const dt = Math.min(clock.getDelta(), 0.04);
       if (document.hidden) return;
-      if (!ended && !paused) update(dt);
+      if (!ended && !paused) {
+        update(dt);
+        saveAccum += dt;
+        if (saveAccum >= 2) {
+          saveAccum = 0;
+          saveRun();
+        }
+      }
       renderer.render(scene, camera);
     }
     animate();

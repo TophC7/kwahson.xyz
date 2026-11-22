@@ -4,10 +4,12 @@ function normalizePath(path: string): string {
 
 class Router {
   pathname = $state(normalizePath(window.location.pathname));
+  search = $state(window.location.search);
 
   constructor() {
     window.addEventListener('popstate', () => {
       this.pathname = normalizePath(window.location.pathname);
+      this.search = window.location.search;
     });
 
     // Bubble-phase on window so Svelte's delegated document handlers run first and can preventDefault.
@@ -34,15 +36,24 @@ class Router {
       }
       if (url.origin !== window.location.origin) return;
 
-      const next = normalizePath(url.pathname);
-      if (next === this.pathname && url.hash) return;
+      const nextPath = normalizePath(url.pathname);
+      if (nextPath === this.pathname && url.search === this.search && url.hash) return;
 
       event.preventDefault();
-      if (next !== this.pathname) {
-        history.pushState({}, '', next);
-        this.pathname = next;
+      if (nextPath !== this.pathname || url.search !== this.search) {
+        history.pushState({}, '', nextPath + url.search);
+        this.pathname = nextPath;
+        this.search = url.search;
       }
     });
+  }
+
+  replace(pathWithSearch: string) {
+    const url = new URL(pathWithSearch, window.location.origin);
+    const nextPath = normalizePath(url.pathname);
+    history.replaceState(history.state, '', nextPath + url.search + window.location.hash);
+    this.pathname = nextPath;
+    this.search = url.search;
   }
 
   get slug(): string | null {

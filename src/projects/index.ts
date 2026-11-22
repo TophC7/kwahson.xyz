@@ -2,6 +2,7 @@ import type { Component } from 'svelte';
 import BammiPreview from './bammi/Preview.svelte';
 import CornShotsPreview from './corn-shots/Preview.svelte';
 import HarvestDropPreview from './harvest-drop/Preview.svelte';
+import LivingAssetsPreview from './living-assets/Preview.svelte';
 import MoojongPreview from './moojong/Preview.svelte';
 import PasturePatrolPreview from './pasture-patrol/Preview.svelte';
 import PastureTacticsPreview from './pasture-tactics/Preview.svelte';
@@ -95,5 +96,16 @@ export const projects: ProjectEntry[] = [
     year: 2026,
     preview: BammiPreview,
     load: () => import('./bammi/Bammi.svelte'),
+  },
+  {
+    slug: 'assets',
+    title: 'Living Assets',
+    description:
+      'Browse and inspect every 3D pasture miniature, visitor, crop, and tile face across all games in one live turntable shelf.',
+    category: '3d',
+    tags: ['Three.js', 'Gallery', '3D'],
+    year: 2026,
+    preview: LivingAssetsPreview,
+    load: () => import('./living-assets/LivingAssets.svelte'),
   },
 ];

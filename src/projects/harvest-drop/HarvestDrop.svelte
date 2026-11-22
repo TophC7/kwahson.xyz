@@ -1,24 +1,17 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import {
-    GridViewIcon,
     HelpCircleIcon,
     RefreshIcon,
     VolumeHighIcon,
     VolumeOffIcon,
   } from '@hugeicons/core-free-icons';
-  import AssetGallery, { galleryLinked, linkGallery } from '../../components/AssetGallery.svelte';
   import GameStage from '../../components/GameStage.svelte';
   import Button from '../../components/ui/Button.svelte';
   import MeterBar from '../../components/ui/MeterBar.svelte';
   import ModalDialog from '../../components/ui/ModalDialog.svelte';
   import StatusPill from '../../components/ui/StatusPill.svelte';
   import { CROPS, cropByTier } from './crops';
-  import {
-    HARVEST_GALLERY_GROUPS,
-    HARVEST_GALLERY_ITEMS,
-    HARVEST_GALLERY_TAGS,
-  } from './models';
   import { mountHarvestDrop, type HarvestController, type HarvestHudState } from './scene';
   import { MAX_POWERUP_SLOTS, POWERUP_DEFS } from './sim';
   import ToolIcon from './ToolIcon.svelte';
@@ -29,7 +22,6 @@
   let controller: HarvestController | null = null;
   let failed = $state(false);
   let showGuide = $state(false);
-  let showGallery = $state(galleryLinked());
   let cropIcons = $state.raw<Record<number, string>>({});
   const DEV = import.meta.env.DEV;
 
@@ -71,20 +63,9 @@
     return hud.toolAlertSlot;
   });
 
-  function syncPaused() {
-    controller?.setPaused(showGallery || showGuide);
-  }
-
-  function setGalleryOpen(open: boolean) {
-    showGallery = open;
-    if (open) showGuide = false;
-    syncPaused();
-    linkGallery(open);
-  }
-
   function setGuideOpen(open: boolean) {
     showGuide = open;
-    syncPaused();
+    controller?.setPaused(showGuide);
   }
 
   $effect(() => {
@@ -108,7 +89,7 @@
         });
         controller = mounted;
         cropIcons = mounted.cropIcons;
-        syncPaused();
+        controller?.setPaused(showGuide);
         return mounted;
       });
       return () => {
@@ -168,19 +149,6 @@
     </div>
 
     <div class="pointer-events-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
-      <Button
-        size="sm"
-        icon={GridViewIcon}
-        iconSize={13}
-        hideLabelOnMobile
-        aria-label="Open asset gallery"
-        aria-expanded={showGallery}
-        title="Crop 3D Asset Gallery"
-        onclick={() => setGalleryOpen(true)}
-      >
-        Assets
-      </Button>
-
       <Button
         size="sm"
         icon={hud.muted ? VolumeOffIcon : VolumeHighIcon}
@@ -548,15 +516,4 @@
       </div>
     </div>
   </ModalDialog>
-
-  {#if showGallery}
-    <AssetGallery
-      title="Harvest Drop Crop Assets"
-      storageKey="harvest-drop-gallery-notes"
-      items={HARVEST_GALLERY_ITEMS}
-      groups={HARVEST_GALLERY_GROUPS}
-      tags={HARVEST_GALLERY_TAGS}
-      onClose={() => setGalleryOpen(false)}
-    />
-  {/if}
 </div>

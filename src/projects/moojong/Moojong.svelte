@@ -1,19 +1,9 @@
-<script module lang="ts">
-  import { TILE_DESIGNS } from './deck';
-
-  const GALLERY_ITEMS = TILE_DESIGNS.map((d) => ({ id: d.id, name: d.name, group: d.suit, badge: d.badge }));
-  const GALLERY_TAGS = Object.fromEntries(
-    ['cow', 'healer-cow', 'hay-bale', 'rock', 'stump', 'crate', 'ufo'].map((id) => [id, 'Patrol']),
-  );
-</script>
-
 <script lang="ts">
   import GameStage from '../../components/GameStage.svelte';
   import {
     Award01Icon,
     BulbIcon,
     EyeIcon,
-    GridViewIcon,
     HelpCircleIcon,
     RefreshIcon,
     ShuffleIcon,
@@ -28,9 +18,8 @@
   import SegmentedControl, { type SegmentedOption } from '../../components/ui/SegmentedControl.svelte';
   import StatusPill from '../../components/ui/StatusPill.svelte';
   import { DIFFICULTIES, type Difficulty } from './board';
-  import { SUIT_STYLES, TOTAL_TILES } from './deck';
+  import { SUIT_STYLES, TILE_DESIGNS, TOTAL_TILES } from './deck';
   import { mountMoojong, type MoojongController, type MoojongHudState } from './scene';
-  import AssetGallery, { galleryLinked, linkGallery } from '../../components/AssetGallery.svelte';
 
   const DIFFICULTY_LIST = Object.keys(DIFFICULTIES) as Difficulty[];
   const DIFFICULTY_OPTIONS: SegmentedOption<Difficulty>[] = DIFFICULTY_LIST.map((diff) => ({
@@ -47,14 +36,7 @@
   let controller: MoojongController | null = null;
   let failed = $state(false);
   let showGuide = $state(false);
-  let showGallery = $state(galleryLinked());
   let endModalDismissed = $state(false);
-
-  function setGalleryOpen(open: boolean) {
-    showGallery = open;
-    if (open) showGuide = false;
-    linkGallery(open);
-  }
 
   let hud = $state<MoojongHudState>({
     difficulty: 'medium',
@@ -183,20 +165,6 @@
         onclick={() => controller?.toggleMute()}
       >
         {hud.muted ? 'Off' : 'On'}
-      </Button>
-
-      <Button
-        variant="surface"
-        icon={GridViewIcon}
-        iconSize={14}
-        hideLabelOnMobile
-        class="bg-surface/85 backdrop-blur-md"
-        aria-expanded={showGallery}
-        aria-label="Inspect all 42 tile assets"
-        title={import.meta.env.DEV ? 'Inspect & comment on all 42 tile assets' : 'Inspect all 42 tile assets'}
-        onclick={() => setGalleryOpen(true)}
-      >
-        Assets
       </Button>
 
       <Button
@@ -429,17 +397,4 @@
       {/if}
     {/snippet}
   </ModalDialog>
-
-  <!-- Asset Review Gallery -->
-  {#if showGallery}
-    <AssetGallery
-      title="Tile Assets"
-      storageKey="moojong-asset-review-v1"
-      items={GALLERY_ITEMS}
-      groups={SUIT_STYLES}
-      tags={GALLERY_TAGS}
-      {previews}
-      onClose={() => setGalleryOpen(false)}
-    />
-  {/if}
 </div>

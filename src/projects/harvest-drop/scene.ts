@@ -6,6 +6,7 @@ import { createModelCache, createStudioBuilder } from '../../lib/miniatures';
 import { createPastureKit } from '../../lib/pastureKit';
 import { addTableLights, createPastureRenderer } from '../../lib/pastureTable';
 import { randomSeed } from '../../lib/rng';
+import { onLeavePage, readStorage, writeStorage } from '../../lib/gameSave';
 import { scoped } from '../../lib/scope';
 import { createHarvestAudio } from './audio';
 import { cropByTier } from './crops';
@@ -196,8 +197,22 @@ export function mountHarvestDrop({
       blastRingMat.dispose();
     });
 
+    const SAVE_KEY = 'harvest-drop-save-v1';
     const sim = createHarvestSim(randomSeed());
     const cropMeshes = new Map<number, THREE.Group>();
+
+    function saveRun() {
+      writeStorage(SAVE_KEY, JSON.stringify(sim.exportState()));
+    }
+
+    const rawSave = readStorage(SAVE_KEY);
+    if (rawSave) {
+      try {
+        sim.importState(JSON.parse(rawSave));
+      } catch {
+        // Ignore invalid save.
+      }
+    }
 
     type TargetingState =
       | { kind: 'pineapple'; uiSlot: number; simSlot?: number; aimPoint: { x: number; y: number } }
@@ -741,6 +756,7 @@ export function mountHarvestDrop({
         sim.reset(newSeed ?? randomSeed());
         syncGhost();
         pushHud();
+        saveRun();
       },
       toggleMute() {
         audio.setMuted(!audio.isMuted());
@@ -761,7 +777,9 @@ export function mountHarvestDrop({
     let clock = 0;
 
     function frame(now: number) {
-      raf = requestAnimationFrame(frame);
+      let saveAccum = 0;
+    onLeavePage(scope, saveRun);
+    raf = requestAnimationFrame(frame);
       const dt = Math.min(0.05, Math.max(0, (now - prev) / 1000));
       prev = now;
       audio.updateMusic(dt, paused, sim.phase === 'gameover');
@@ -917,9 +935,16 @@ export function mountHarvestDrop({
       }
 
       syncCropMeshes();
+      saveAccum += dt;
+      if (saveAccum >= 2) {
+        saveAccum = 0;
+        saveRun();
+      }
       renderer.render(scene, camera);
     }
 
+    let saveAccum = 0;
+    onLeavePage(scope, saveRun);
     raf = requestAnimationFrame(frame);
     add(() => cancelAnimationFrame(raf));
 

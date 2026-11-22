@@ -4,9 +4,11 @@ import { scoped } from '../../lib/scope';
 import { createBoardCamera, type Insets } from '../../lib/boardCamera';
 import { createBursts } from '../../lib/bursts';
 import { addTableLights, buildPastureTable, createPastureRenderer } from '../../lib/pastureTable';
+import { onLeavePage, readHashCode, readStorage, writeHashCode, writeStorage } from '../../lib/gameSave';
 import { randomSeed } from '../../lib/rng';
 import { createPastureKit } from '../../lib/pastureKit';
 import { createMoojongAudio } from './audio';
+import { decodeMoojongSave, encodeMoojongSave, type MoojongSave } from './save';
 import {
   canTilesMatch,
   DIFFICULTIES,
@@ -444,8 +446,23 @@ export function mountMoojong({
       return viewport.clientWidth < viewport.clientHeight;
     }
 
-    function loadBoard(difficulty: Difficulty, seed: number, announce?: string, portrait = isPortrait()) {
-      currentBoard = generateBoard(difficulty, seed, portrait);
+    const SAVE_KEY = 'moojong-save-v1';
+
+    function save() {
+      if (!currentBoard) return;
+      const code = encodeMoojongSave(currentBoard, elapsedSec, hintsUsed, reshufflesUsed);
+      writeStorage(SAVE_KEY, code);
+      writeHashCode(code);
+    }
+
+    function loadBoard(
+      difficulty: Difficulty,
+      seed: number,
+      announce?: string,
+      portrait = isPortrait(),
+      resumed?: MoojongSave,
+    ) {
+      currentBoard = resumed ? resumed.board : generateBoard(difficulty, seed, portrait);
       clearTileMeshes();
 
       selectedId = null;
@@ -453,13 +470,13 @@ export function mountMoojong({
       hintedIds = null;
       undoStack = [];
       phase = 'playing';
-      hintsUsed = 0;
-      reshufflesUsed = 0;
+      hintsUsed = resumed?.hintsUsed ?? 0;
+      reshufflesUsed = resumed?.reshufflesUsed ?? 0;
       matchStreak = 0;
-      elapsedSec = 0;
+      elapsedSec = resumed?.elapsedSec ?? 0;
       timerRunning = false;
 
-      computeBoardBounds(currentBoard.tiles);
+      computeBoardBounds(resumed ? getActiveTiles(currentBoard.tiles) : currentBoard.tiles);
       buildPastureTable(kit, tableGroup, {
         spanX: boardBounds.maxX - boardBounds.minX + (portrait ? 0.55 : 2.2),
         spanZ: boardBounds.maxZ - boardBounds.minZ + (portrait ? 0.6 : 2.0),
@@ -470,13 +487,17 @@ export function mountMoojong({
 
       for (const tile of currentBoard.tiles) {
         const delay = tile.gz * 0.045 + ((tile.gx + tile.gy + 20) % 7) * 0.012;
-        visuals.set(tile.id, createTileVisual(tile, delay));
+        const vis = createTileVisual(tile, resumed ? 0 : delay);
+        if (tile.removed) vis.group.visible = false;
+        visuals.set(tile.id, vis);
       }
 
       refreshFreeStates();
       cam.snapHome();
       cam.setBounds(boardBounds, viewCenterY);
       syncHud();
+      if (resumed) checkEndConditions();
+      save();
       setStatus(announce ?? `${currentBoard.layoutName} · ${DIFFICULTIES[difficulty].label}`, 2.8);
     }
 
@@ -552,6 +573,7 @@ export function mountMoojong({
       refreshFreeStates();
       syncHud();
       checkEndConditions();
+      save();
     }
 
     function handleTileTap(tileId: number) {
@@ -626,6 +648,7 @@ export function mountMoojong({
       audio.playUndo();
       refreshFreeStates();
       syncHud();
+      save();
       setStatus('Undid last match', 1.5);
     }
 
@@ -653,6 +676,7 @@ export function mountMoojong({
         2.6,
       );
       syncHud();
+      save();
     }
 
     function reshuffle() {
@@ -689,6 +713,7 @@ export function mountMoojong({
       audio.playReshuffle();
       refreshFreeStates();
       syncHud();
+      save();
       setStatus(
         flattened
           ? 'Reshuffled & settled onto meadow (solvable)'
@@ -881,8 +906,15 @@ export function mountMoojong({
       audio.playUiClick(false);
     }
 
-    // Boot initial Medium board
-    loadBoard('medium', randomSeed(), 'Match identical free tiles to clear the pasture');
+    // Resume saved board (URL hash takes priority over localStorage), or deal a fresh Medium board
+    const savedCode = readHashCode() ?? readStorage(SAVE_KEY);
+    const resumed = savedCode ? decodeMoojongSave(savedCode) : null;
+    if (resumed) {
+      loadBoard(resumed.board.difficulty, resumed.board.seed, 'Board resumed', resumed.board.portrait, resumed);
+    } else {
+      loadBoard('medium', randomSeed(), 'Match identical free tiles to clear the pasture');
+    }
+    onLeavePage(scope, save);
     rafId = requestAnimationFrame(tick);
     add(() => cancelAnimationFrame(rafId));
 

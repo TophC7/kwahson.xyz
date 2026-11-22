@@ -1,13 +1,12 @@
 <script lang="ts">
   import GameStage from '../../components/GameStage.svelte';
-  import AssetGallery, { galleryLinked, linkGallery } from '../../components/AssetGallery.svelte';
   import Button from '../../components/ui/Button.svelte';
   import MeterBar from '../../components/ui/MeterBar.svelte';
   import ModalDialog from '../../components/ui/ModalDialog.svelte';
   import SegmentedControl, { type SegmentedOption } from '../../components/ui/SegmentedControl.svelte';
   import StatusPill from '../../components/ui/StatusPill.svelte';
   import TouchPad from '../../components/ui/TouchPad.svelte';
-  import { GridViewIcon, PauseIcon, PlayIcon, RefreshIcon, VolumeHighIcon, VolumeOffIcon } from '@hugeicons/core-free-icons';
+  import { PauseIcon, PlayIcon, RefreshIcon, VolumeHighIcon, VolumeOffIcon } from '@hugeicons/core-free-icons';
   import {
     DAYTIMES,
     DAYTIME_DEFS,
@@ -21,11 +20,6 @@
     type PowerupId,
     type Season,
   } from './data';
-  import {
-    UDDER_GALLERY_GROUPS,
-    UDDER_GALLERY_ITEMS,
-    UDDER_GALLERY_TAGS,
-  } from './models';
   import PowerupIcon from './PowerupIcon.svelte';
   import { mountUdderHavoc, type ArenaController, type ArenaHudState } from './scene';
 
@@ -93,24 +87,10 @@
   let pickSeason = $state<Season | 'auto'>('auto');
   let pickDaytime = $state<DayTime | 'auto'>('auto');
   let pickLayout = $state<ArenaLayout | 'auto'>('auto');
-  let showGallery = $state(galleryLinked());
-  let resumeAfterGallery = false;
 
   const aimModeLabel = $derived(
     hud.aimMode === 'auto' ? 'Auto' : hud.aimMode === 'charge' ? 'Charge' : 'Cursor',
   );
-
-  function setGalleryOpen(open: boolean) {
-    if (open) {
-      resumeAfterGallery = !hud.paused && !hud.ended && !hud.pendingChoices;
-      if (resumeAfterGallery) controller?.togglePause();
-    } else if (resumeAfterGallery) {
-      resumeAfterGallery = false;
-      if (hud.paused && !hud.ended) controller?.togglePause();
-    }
-    showGallery = open;
-    linkGallery(open);
-  }
 
   function startNewRun() {
     controller?.restart({
@@ -238,17 +218,6 @@
       {/if}
 
       <div class="pointer-events-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
-        <Button
-          size="md"
-          icon={GridViewIcon}
-          iconSize={14}
-          hideLabelOnMobile
-          aria-label="Open asset gallery"
-          title="3D Asset Gallery"
-          onclick={() => setGalleryOpen(true)}
-        >
-          Assets
-        </Button>
         <Button
           size="md"
           active={hud.aimMode === 'auto'}
@@ -389,7 +358,7 @@
 
   <!-- Pause overlay -->
   <ModalDialog
-    open={hud.paused && !hud.ended && !hud.pendingChoices && !showGallery}
+    open={hud.paused && !hud.ended && !hud.pendingChoices}
     onClose={() => controller?.togglePause()}
     eyebrow="Paused"
     title="Pasture Paused"
@@ -442,15 +411,4 @@
       </Button>
     {/snippet}
   </ModalDialog>
-
-  {#if showGallery}
-    <AssetGallery
-      title="Udder Havoc Assets"
-      storageKey="udder-havoc-asset-review-v1"
-      items={UDDER_GALLERY_ITEMS}
-      groups={UDDER_GALLERY_GROUPS}
-      tags={UDDER_GALLERY_TAGS}
-      onClose={() => setGalleryOpen(false)}
-    />
-  {/if}
 </div>

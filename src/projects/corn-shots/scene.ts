@@ -13,6 +13,7 @@ import { isGameKey } from '../../lib/hotkeys';
 import { createModelCache, createStudioBuilder, fitModel, type MiniatureId } from '../../lib/miniatures';
 import { createPastureKit } from '../../lib/pastureKit';
 import { addTableLights, buildPastureTable, createPastureRenderer } from '../../lib/pastureTable';
+import { onLeavePage, readHashCode, readStorage, writeHashCode, writeStorage } from '../../lib/gameSave';
 import { randomSeed } from '../../lib/rng';
 import { scoped } from '../../lib/scope';
 import { createCornAudio } from './audio';
@@ -75,13 +76,83 @@ const SHOT_Y = GROUND_Y + 0.72;
 const MUZZLE_ORIGIN = new THREE.Vector3(...BAZOOKA_MUZZLE_LOCAL);
 const UP = new THREE.Vector3(0, 1, 0);
 
-function initialSeedFromUrl(): { seed: number; room: number } {
+const SAVE_KEY = 'corn-shots-save-v1';
+
+interface CornSave {
+  seed: number;
+  roomIndex: number;
+  totalPar: number;
+  totalShots: number;
+  shotsUsed: number;
+  ammoLeft: number;
+  aimDeg: number;
+  targetsMask: number;
+  pumpkinsMask: number;
+}
+
+function encodeCornSave(s: CornSave): string {
+  const deg = ((Math.round(s.aimDeg) % 360) + 360) % 360;
+  const bytes = [
+    1,
+    (s.seed >>> 24) & 255,
+    (s.seed >>> 16) & 255,
+    (s.seed >>> 8) & 255,
+    s.seed & 255,
+    (s.roomIndex >>> 8) & 255,
+    s.roomIndex & 255,
+    (s.totalPar >>> 8) & 255,
+    s.totalPar & 255,
+    (s.totalShots >>> 8) & 255,
+    s.totalShots & 255,
+    Math.min(255, s.shotsUsed),
+    Math.min(255, s.ammoLeft),
+    (deg >>> 8) & 255,
+    deg & 255,
+    (s.targetsMask >>> 8) & 255,
+    s.targetsMask & 255,
+    s.pumpkinsMask & 255,
+  ];
+  return btoa(String.fromCharCode(...bytes))
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replace(/=+$/, '');
+}
+
+function decodeCornSave(code: string): CornSave | null {
+  if (!code || /[^\w-]/.test(code) || code.length % 4 === 1) return null;
+  let raw: string;
+  try {
+    raw = atob(code.replaceAll('-', '+').replaceAll('_', '/'));
+  } catch {
+    return null;
+  }
+  if (raw.length !== 18 || raw.charCodeAt(0) !== 1) return null;
+  const b = (i: number) => raw.charCodeAt(i);
+  const seed = ((b(1) << 24) | (b(2) << 16) | (b(3) << 8) | b(4)) >>> 0;
+  const roomIndex = (b(5) << 8) | b(6);
+  if (!seed || !roomIndex) return null;
+  return {
+    seed,
+    roomIndex,
+    totalPar: (b(7) << 8) | b(8),
+    totalShots: (b(9) << 8) | b(10),
+    shotsUsed: b(11),
+    ammoLeft: b(12),
+    aimDeg: (b(13) << 8) | b(14),
+    targetsMask: (b(15) << 8) | b(16),
+    pumpkinsMask: b(17),
+  };
+}
+
+function initialSeedFromUrl(): { seed: number; room: number; explicit: boolean } {
   const params = new URLSearchParams(window.location.search);
   const rawSeed = Number(params.get('seed'));
   const rawRoom = Number(params.get('room'));
+  const explicit = Number.isFinite(rawSeed) && rawSeed > 0;
   return {
-    seed: Number.isFinite(rawSeed) && rawSeed > 0 ? Math.floor(rawSeed) >>> 0 : randomSeed(),
+    seed: explicit ? Math.floor(rawSeed) >>> 0 : randomSeed(),
     room: Number.isFinite(rawRoom) && rawRoom >= 1 ? Math.floor(rawRoom) : 1,
+    explicit,
   };
 }
 
@@ -411,27 +482,68 @@ export function mountCornShots({
       });
     }
 
-    function loadRoom(nextSeed: number, nextRoomIndex: number, resetTotals: boolean) {
+    function save() {
+      if (!roomState) return;
+      let targetsMask = 0;
+      for (let i = 0; i < roomState.targets.length; i++) {
+        if (roomState.targets[i].alive) targetsMask |= 1 << i;
+      }
+      let pumpkinsMask = 0;
+      for (let i = 0; i < roomState.pumpkins.length; i++) {
+        if (roomState.pumpkins[i].alive) pumpkinsMask |= 1 << i;
+      }
+      const code = encodeCornSave({
+        seed: baseSeed,
+        roomIndex,
+        totalPar,
+        totalShots,
+        shotsUsed,
+        ammoLeft,
+        aimDeg: (aimYaw * 180) / Math.PI,
+        targetsMask,
+        pumpkinsMask,
+      });
+      writeStorage(SAVE_KEY, code);
+      writeHashCode(code);
+    }
+
+    function loadRoom(nextSeed: number, nextRoomIndex: number, resetTotals: boolean, resumed?: CornSave) {
       baseSeed = nextSeed >>> 0;
       roomIndex = Math.max(1, nextRoomIndex);
       if (resetTotals) {
-        totalPar = 0;
-        totalShots = 0;
+        totalPar = resumed ? resumed.totalPar : 0;
+        totalShots = resumed ? resumed.totalShots : 0;
       }
       syncUrl(baseSeed, roomIndex);
       currentGenerated = generateRoom(baseSeed, roomIndex);
       roomState = cloneRoomState(currentGenerated.state);
-      shotsUsed = 0;
-      ammoLeft = currentGenerated.ammo;
-      aimYaw = yawForDir(-roomState.cow.x, -roomState.cow.z);
-      phase = 'aiming';
+      if (resumed) {
+        shotsUsed = resumed.shotsUsed;
+        ammoLeft = resumed.ammoLeft;
+        aimYaw = (resumed.aimDeg * Math.PI) / 180;
+        for (let i = 0; i < roomState.targets.length; i++) {
+          roomState.targets[i].alive = (resumed.targetsMask & (1 << i)) !== 0;
+        }
+        for (let i = 0; i < roomState.pumpkins.length; i++) {
+          roomState.pumpkins[i].alive = (resumed.pumpkinsMask & (1 << i)) !== 0;
+        }
+        const remaining = roomState.targets.filter((t) => t.alive).length;
+        phase = remaining === 0 ? 'cleared' : ammoLeft <= 0 ? 'failed' : 'aiming';
+      } else {
+        shotsUsed = 0;
+        ammoLeft = currentGenerated.ammo;
+        aimYaw = yawForDir(-roomState.cow.x, -roomState.cow.z);
+        phase = 'aiming';
+      }
       activeShell = null;
       shellVisual.visible = false;
       undoStack = [];
       clearDelay = 0;
       simTime = 0;
       clearRoomMeshesCleanly();
-      pushHud();
+      cowActor.mesh.rotation.y = aimYaw;
+      pushHud(resumed ? 'Room resumed' : undefined);
+      save();
     }
 
     function updateSightPreview() {
@@ -629,6 +741,7 @@ export function mountCornShots({
         cowActor.mesh.rotation.y = aimYaw;
         syncVisualVisibility();
         pushHud('Rewound last shot');
+        save();
       },
       retryRoom() {
         audio.unlock();
@@ -652,7 +765,15 @@ export function mountCornShots({
       destroy: dispose,
     };
 
-    loadRoom(init.seed, init.room, true);
+    const hashSaved = readHashCode();
+    const resumed = (hashSaved ? decodeCornSave(hashSaved) : null) ??
+      (!init.explicit ? (() => { const s = readStorage(SAVE_KEY); return s ? decodeCornSave(s) : null; })() : null);
+    if (resumed) {
+      loadRoom(resumed.seed, resumed.roomIndex, true, resumed);
+    } else {
+      loadRoom(init.seed, init.room, true);
+    }
+    onLeavePage(scope, save);
     camera.refit();
 
     let prev = performance.now();
@@ -743,6 +864,7 @@ export function mountCornShots({
             phase = 'aiming';
             pushHud();
           }
+          save();
         }
       }
 

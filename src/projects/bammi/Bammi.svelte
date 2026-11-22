@@ -27,6 +27,7 @@
   import Button from '../../components/ui/Button.svelte';
   import ModalDialog from '../../components/ui/ModalDialog.svelte';
   import SegmentedControl, { type SegmentedOption } from '../../components/ui/SegmentedControl.svelte';
+  import { readStorage, writeStorage } from '../../lib/gameSave';
   import {
     BOARD_SIZES,
     canPlay,
@@ -159,6 +160,64 @@
     cancelBurst?.();
   }
 
+  const SAVE_KEY = 'bammi-save-v1';
+
+  function saveGame() {
+    if (!board?.regions.length) return;
+    writeStorage(
+      SAVE_KEY,
+      JSON.stringify({
+        v: 1,
+        layout: gameLayout,
+        mode: gameMode,
+        turn,
+        moves,
+        winner,
+        board: $state.snapshot(board),
+      }),
+    );
+  }
+
+  function loadSavedGame(): boolean {
+    const raw = readStorage(SAVE_KEY);
+    if (!raw) return false;
+    try {
+      const parsed = JSON.parse(raw);
+      if (
+        !parsed ||
+        parsed.v !== 1 ||
+        !(parsed.layout in BOARD_SIZES) ||
+        (parsed.mode !== 'friend' && parsed.mode !== 'computer') ||
+        (parsed.turn !== 0 && parsed.turn !== 1) ||
+        typeof parsed.moves !== 'number' ||
+        (parsed.winner !== null && parsed.winner !== 0 && parsed.winner !== 1) ||
+        !parsed.board ||
+        !Array.isArray(parsed.board.regions) ||
+        !parsed.board.regions.length
+      ) {
+        return false;
+      }
+      board = parsed.board;
+      gameLayout = parsed.layout;
+      gameMode = parsed.mode;
+      turn = parsed.turn;
+      moves = parsed.moves;
+      winner = parsed.winner;
+      busy = false;
+      focusedRegionId = null;
+      const firstLegal = board?.regions.find((reg) => reg.owner === null || reg.owner === turn);
+      activeRegion = firstLegal?.id ?? 0;
+      message =
+        winner !== null
+          ? `Every region is ${PLAYERS[winner].flavor}. Won in ${moves} moves!`
+          : 'Match resumed.';
+      scheduleComputer();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function newGame(layoutKey: LayoutKey, modeValue: GameMode) {
     try {
       board = createBoard(BOARD_SIZES[layoutKey]);
@@ -178,6 +237,7 @@
     gameLayout = layoutKey;
     gameMode = modeValue;
     message = 'Blue starts. Empty regions are up for grabs.';
+    saveGame();
   }
 
   function animateExplosion(
@@ -338,6 +398,7 @@
       }
     }
 
+    saveGame();
     scheduleComputer();
   }
 
@@ -388,7 +449,7 @@
       { capture: true, signal },
     );
 
-    newGame('medium', 'friend');
+    if (!loadSavedGame()) newGame('medium', 'friend');
 
     return () => {
       generation++;

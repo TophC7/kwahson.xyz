@@ -5,7 +5,8 @@ import { isGameKey } from '../../lib/hotkeys';
 import { createModelCache, createStudioBuilder, type MiniatureId } from '../../lib/miniatures';
 import { createPastureKit } from '../../lib/pastureKit';
 import { addTableLights, buildPastureTable, createPastureRenderer } from '../../lib/pastureTable';
-import { randomSeed } from '../../lib/rng';
+import { mulberry32, randomSeed } from '../../lib/rng';
+import { onLeavePage, readStorage, writeStorage } from '../../lib/gameSave';
 import { scoped } from '../../lib/scope';
 import { createArenaAudio } from './audio';
 import {
@@ -251,8 +252,30 @@ export function mountUdderHavoc({
     const isTouchViewport = () =>
       window.matchMedia('(hover: none) and (pointer: coarse), (max-width: 900px)').matches;
 
+    const SAVE_KEY = 'udder-havoc-save-v1';
     let sim: SimState = createSimState(randomSeed());
     let paused = false;
+
+    function saveRun() {
+      writeStorage(SAVE_KEY, JSON.stringify({ ...sim, rng: undefined, events: [] }));
+    }
+
+    const rawSave = readStorage(SAVE_KEY);
+    if (rawSave) {
+      try {
+        const parsed = JSON.parse(rawSave);
+        if (parsed && typeof parsed.seed === 'number' && typeof parsed.elapsed === 'number' && !parsed.ended && parsed.elapsed > 0 && parsed.player) {
+          sim = {
+            ...parsed,
+            rng: mulberry32((parsed.seed ^ Math.floor(parsed.elapsed * 1000)) >>> 0),
+            events: [],
+          };
+          paused = !sim.pendingChoices;
+        }
+      } catch {
+        // Ignore invalid save.
+      }
+    }
     let aimMode: AimMode = isTouchViewport() ? 'charge' : 'cursor';
     let statusMsg = 'Recoil-skate away from beams. Hold Click/Space for Gold Pierce.';
     let statusTimer = 5;
@@ -984,6 +1007,7 @@ export function mountUdderHavoc({
         }
 
         stepSim(sim, { moveX, moveZ, aimDirX, aimDirZ, hasManualAim, charging }, dt);
+        if (sim.ended) saveRun();
         manualChargeAim = charging && hasManualAim;
         consumeEvents();
         bursts.update(dt);
@@ -994,6 +1018,11 @@ export function mountUdderHavoc({
           hudTick = 0;
           pushHud();
         }
+        saveAccum += dt;
+        if (saveAccum >= 2) {
+          saveAccum = 0;
+          saveRun();
+        }
       } else {
         syncVisuals(0);
       }
@@ -1001,6 +1030,8 @@ export function mountUdderHavoc({
       renderer.render(scene, camera);
     }
 
+    let saveAccum = 0;
+    onLeavePage(scope, saveRun);
     raf = requestAnimationFrame(frame);
 
     const controller: ArenaController = {
@@ -1009,6 +1040,7 @@ export function mountUdderHavoc({
         applyPowerup(sim, id);
         consumeEvents();
         pushHud();
+        saveRun();
       },
       toggleAutoAim() {
         const touchMode = isTouchViewport();
@@ -1049,6 +1081,7 @@ export function mountUdderHavoc({
         applyEnvironment();
         rebuildObstacles();
         pushHud();
+        saveRun();
       },
       setStickInput(nx, ny, active) {
         stickX = nx;

@@ -1,17 +1,6 @@
 <script module lang="ts">
   import type { MiniatureId } from '../lib/miniatures';
 
-  /** True when the page was opened with `?gallery`. */
-  export const galleryLinked = () => new URLSearchParams(location.search).has('gallery');
-
-  /** Mirrors the open state into `?gallery=1`, keeping the path, other params and hash. */
-  export function linkGallery(open: boolean) {
-    const url = new URL(location.href);
-    if (open) url.searchParams.set('gallery', '1');
-    else url.searchParams.delete('gallery');
-    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
-  }
-
   export interface GalleryItem<T extends string = MiniatureId> {
     id: T;
     name: string;
@@ -53,7 +42,6 @@
     groups: Record<string, GalleryGroup>;
     previews?: Record<string, string>;
     tags?: Record<string, string>;
-    onClose: () => void;
   }
 
   const STATUSES: { id: Exclude<ReviewStatus, ''>; label: string; cls: string }[] = [
@@ -69,7 +57,7 @@
   // Status/comment review + JSON export only exist on the dev server; Vite folds this to `false` in builds so those branches drop out.
   const REVIEW = import.meta.env.DEV;
 
-  let { title, storageKey, items, groups, previews, tags, onClose }: Props = $props();
+  let { title, storageKey, items, groups, previews, tags }: Props = $props();
 
   const turntable = createTurntable();
   let copyTimer = 0;
@@ -92,13 +80,22 @@
     }
   }
 
-  let reviews = $state<Record<string, ReviewEntry>>(REVIEW ? loadSaved() : {});
+  let reviews = $state<Record<string, ReviewEntry>>({});
   let filter = $state('all');
   let viewMode = $state<ViewMode>('both');
   let copied = $state(false);
   let showJson = $state(false);
   let confirmClear = $state(false);
   let focusedId = $state<string | null>(null);
+
+  $effect(() => {
+    void storageKey;
+    reviews = REVIEW ? loadSaved() : {};
+    filter = 'all';
+    focusedId = null;
+    showJson = false;
+    confirmClear = false;
+  });
 
   function saveReviews() {
     try {
@@ -205,8 +202,6 @@
         e.preventDefault();
         stepFocused(-1);
       }
-    } else if (e.key === 'Escape') {
-      onClose();
     }
   }
 </script>
@@ -241,24 +236,13 @@
   </div>
 {/snippet}
 
-<div
-  class="absolute inset-0 z-40 flex flex-col bg-canvas text-ink select-text"
-  role="dialog"
-  aria-modal="true"
-  aria-label={title}
->
-  <header class="shrink-0 border-b border-ink/10 bg-surface/95 px-3 py-2.5 backdrop-blur-md sm:px-5">
+<div class="flex flex-col text-ink select-text">
+  <div class="border-b border-ink/10 bg-surface/75 px-3 py-3 sm:px-5">
     <div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2.5">
-      <div class="flex items-center gap-3">
-        <Button variant="surface" size="sm" icon={ArrowLeft01Icon} onclick={onClose}>
-          Back
-        </Button>
-
-        <h1 class="text-sm font-semibold tracking-tight text-ink sm:text-base">
-          {title}{REVIEW ? ' Review' : ''}
-          <span class="font-mono text-xs font-normal text-ink-dim">({items.length})</span>
-        </h1>
-      </div>
+      <h2 class="text-sm font-semibold tracking-tight text-ink sm:text-base">
+        {title}{REVIEW ? ' Review' : ''}
+        <span class="font-mono text-xs font-normal text-ink-dim">({items.length})</span>
+      </h2>
 
       <div class="flex flex-wrap items-center gap-1.5">
         {#if previews}
@@ -315,7 +299,7 @@
         ariaLabel="Filter assets"
       />
     </div>
-  </header>
+  </div>
 
   {#if REVIEW && showJson}
     <div class="shrink-0 border-b border-ink/12 bg-[#141613] px-3 py-3 sm:px-5">
@@ -335,7 +319,7 @@
     </div>
   {/if}
 
-  <div class="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5">
+  <div class="px-3 py-4 sm:px-5 sm:py-5">
     <div class="mx-auto max-w-7xl">
       {#if filteredDesigns.length === 0}
         <div class="rounded-md border border-dashed border-ink/14 bg-surface/40 p-10 text-center">
@@ -346,7 +330,7 @@
         </div>
       {:else}
         <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {#each filteredDesigns as design (design.id)}
+          {#each filteredDesigns as design (`${design.group}:${design.id}`)}
             {@const entry = getEntry(design.id)}
             {@const group = groups[design.group]}
             {@const tag = tags?.[design.id]}
