@@ -14,9 +14,11 @@
 </script>
 
 <header
-  class="z-40 flex h-11 shrink-0 items-center justify-between border-b border-ink/9 bg-canvas/90 px-4 backdrop-blur-md sm:px-6"
+  class="z-40 shrink-0 border-b border-ink/9 bg-canvas/90 backdrop-blur-md"
+  style="padding-top: env(safe-area-inset-top);"
 >
-  <div class="flex min-w-0 items-center gap-2.5">
+  <div class="flex h-11 items-center justify-between px-4 sm:px-6">
+    <div class="flex min-w-0 items-center gap-2.5">
     <a
       href="/"
       class="focus-ring group inline-flex items-center gap-2.5 rounded-sm text-sm font-medium tracking-tight text-ink transition-colors hover:text-[#e6e8e0]"
@@ -64,5 +66,6 @@
         <span>{String(totalCount).padStart(2, '0')} {totalCount === 1 ? 'PROJECT' : 'PROJECTS'}</span>
       </div>
     {/if}
+  </div>
   </div>
 </header>
